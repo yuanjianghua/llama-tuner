@@ -89,7 +89,9 @@ try {
       Write-TuneLog ("Reusing validated K=$Kbest (hardware and model unchanged; use -Force to revalidate)")
     } else {
       $planArgBuilder = { param($k) Build-TuneArgs $plan $k }
-      $Kbest = (Find-BestTuneK $plan $p.Kmax $llamaExe $runtimeDir $planArgBuilder).K
+      $vr = Find-BestTuneCtx $plan $p.Kmax $llamaExe $runtimeDir $planArgBuilder
+      $Kbest = $vr.K
+      Write-TuneLog ("Validated plan: ctx={0}  K={1} (hardware-picked, performance-verified)" -f $vr.NCtx, $Kbest)
     }
   }
 

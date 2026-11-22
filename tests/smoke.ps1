@@ -152,9 +152,12 @@ function Stop-TuneServer { }
 function Test-TunePlan($plan, [string]$argline, [string]$llamaExe, [int]$loadTimeoutSec, [string]$runtimeDir) {
   $k = [int][regex]::Match($argline, '-K (\d+)').Groups[1].Value
   $script:kTried += $k
+  $ctx = [int]$plan.NCtx   # plans without NCtx (plain Find-BestTuneK tests) -> 0 -> always fits
+  if ($ctx -gt $script:ctxMaxBootable) { return @{ ok = $false; pp = 0; tg = 0; err = 'simulated ctx OOM' } }
   if ($k -le $script:kTrueMax) { return @{ ok = $true; pp = 10; tg = 10; err = '' } }
   return @{ ok = $false; pp = 0; tg = 0; err = 'simulated load failure' }
 }
+$script:ctxMaxBootable = 999999   # ctx never blocks unless a test says so
 $kb = { param($k) ('-K ' + $k) }
 $script:kTrueMax = 7; $script:kTried = @()
 $r1 = Find-BestTuneK @{ Alias = 'x'; Port = 8080 } 10 'fake.exe' 'rt' $kb
@@ -166,6 +169,21 @@ Assert-Ok ($r2.K -eq 0) ('all launches fail -> K=0 fallback (got ' + $r2.K + ')'
 $script:kTrueMax = 3; $script:kTried = @()
 $r3 = Find-BestTuneK @{ Alias = 'x'; Port = 8080 } 3 'fake.exe' 'rt' $kb
 Assert-Ok ($r3.K -eq 2 -and $script:kTried.Count -le 3) ('everything fits -> K=Kmax-1 in few probes (K=' + $r3.K + ', probes=' + $script:kTried.Count + ')')
+
+# ---------- 7b. Find-BestTuneCtx: hardware picks ctx, real launches verify; nothing boots
+#              -> halve context and re-search, down to 8192 (field incident: 16k cap) --------
+$planC = @{ Alias = 'x'; Port = 8080; NCtx = 32768 }
+$script:ctxMaxBootable = 16384; $script:kTrueMax = 6; $script:kTried = @()
+$rc = Find-BestTuneCtx $planC 8 'fake.exe' 'rt' $kb
+Assert-Ok ($rc.NCtx -eq 16384 -and $rc.K -eq 5) ('ctx too big to boot -> auto-demote 32768 -> 16384, K re-searched (got ctx=' + $rc.NCtx + ' K=' + $rc.K + ')')
+Assert-Ok ($planC.NCtx -eq 16384) ('demotion updates plan.NCtx in place (launcher sees the new ctx)')
+$planC.NCtx = 32768; $script:ctxMaxBootable = 32768; $script:kTrueMax = 6
+$rc2 = Find-BestTuneCtx $planC 8 'fake.exe' 'rt' $kb
+Assert-Ok ($rc2.NCtx -eq 32768 -and $rc2.K -eq 5) ('biggest ctx boots -> no demotion (got ctx=' + $rc2.NCtx + ')')
+$planC.NCtx = 32768; $script:ctxMaxBootable = 0; $script:kTrueMax = 6
+$rc3 = Find-BestTuneCtx $planC 8 'fake.exe' 'rt' $kb
+Assert-Ok ($rc3.NCtx -eq 8192 -and $rc3.K -eq 0) ('nothing boots anywhere -> 8192 ctx K=0 fallback (got ctx=' + $rc3.NCtx + ' K=' + $rc3.K + ')')
+$script:ctxMaxBootable = 999999
 
 # ---------- summary ----------
 Write-Host ''
