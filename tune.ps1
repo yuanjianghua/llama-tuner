@@ -33,11 +33,9 @@ $runtimeDir = Join-Path $root 'runtime'
 try {
   Write-TuneLog "=== llama-tuner $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ==="
 
-  # 1. machine (a running server would poison VRAM/RAM readings and validation runs)
-  if (Get-Process llama-server -ErrorAction SilentlyContinue) {
-    Write-TuneLog 'Stopping running llama-server for clean measurement...'
-    Stop-TuneServer
-  }
+  # 1. machine. Do NOT kill a running server just for reading hardware: -SkipValidate dry plans and
+  #    cached-K reuses must leave the live server alone (fresh-clone E2E finding). The validation
+  #    branch stops it later and re-reads hardware so planning stays accurate.
   $ramMB = Get-TuneRamMB
   Write-TuneLog ("RAM total: {0} GB" -f [Math]::Round($ramMB / 1024, 1))
   $gpu = Get-TuneGpuSummary
@@ -118,6 +116,16 @@ try {
       $Kbest = [Math]::Min($cachedK, $p.Kmax)
       Write-TuneLog ("Reusing validated K=$Kbest (hardware and model unchanged; use -Force to revalidate)")
     } else {
+      # about to launch real servers: free the GPU, then re-read + replan so estimates reflect the idle card
+      if (Get-Process llama-server -ErrorAction SilentlyContinue) {
+        Write-TuneLog 'Stopping running llama-server for clean measurement...'
+        Stop-TuneServer
+        Start-Sleep -Seconds 3
+        $gpu = Get-TuneGpuSummary
+        $p = New-TunePlan $model $modelMB $ramMB $layout $gpu $Port
+        $plan = $p.Plan
+        Write-TuneLog ("Re-planned on idle GPU: ctx={0}  Kmax={1}" -f $plan.NCtx, $p.Kmax)
+      }
       $planArgBuilder = { param($k) Build-TuneArgs $plan $k }
       $vr = Find-BestTuneCtx $plan $p.Kmax $llamaExe $runtimeDir $planArgBuilder
       $Kbest = $vr.K

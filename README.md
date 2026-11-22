@@ -13,6 +13,23 @@ copy the folder to any Windows machine, double-click `tune.cmd`, get a launch sc
 
 ## English
 
+### Prerequisites (check these 60 seconds first)
+
+| Need | Detail |
+|---|---|
+| Windows 10/11 x64 | PowerShell 5.1 is built in — nothing else to install. No admin rights needed (except `-FixPagefile`). |
+| NVIDIA driver installed | Open Task Manager → Performance: does it show your GPU by name? If not (or it says "Microsoft Basic Display"), install drivers via Windows Update → Optional updates, or https://www.nvidia.com/en-us/drivers/ — the tuner will also detect and tell you. AMD GPUs: plan manually (Vulkan build). |
+| Disk space | Model file + ~8 GB free on the same drive (scratch/pagefile headroom). The tuner warns if it's tight. |
+| A GGUF model | No model yet? Download one: [Hugging Face GGUF models](https://huggingface.co/models?library=gguf) · China mirror: [ModelScope](https://modelscope.cn). A Q4_K_XL / Q4_K_M quantization of a 20–35B MoE model is the sweet spot for an 8 GB card + 16 GB RAM. |
+| llama.cpp | Optional — auto-downloaded. GitHub too slow from your network? See Troubleshooting below. |
+| Internet (first run only) | For the llama.cpp download and GitHub release check. |
+
+### What this tool does NOT do
+
+- It does not download models (links above) and does not install GPU drivers (it detects and tells you).
+- It does not run as a service; start/stop are your two desktop shortcuts.
+- It never touches anything outside its own folder except: two desktop shortcuts, and (only with `-FixPagefile`, admin) the pagefile registration.
+
 ### What it does
 
 **Detect hardware → parse the GGUF header → compute the optimal VRAM split → validate with real
