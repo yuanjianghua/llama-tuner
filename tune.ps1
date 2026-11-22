@@ -115,7 +115,7 @@ function Parse-GgufHeader([string]$path) {
           if (-not $ok) { break }
           [void]$br.ReadUInt32()               # dtype (sizes inferred from offsets instead)
           $off = $br.ReadUInt64()
-          $tensors.Add(@{ Name = $name; Offset = $off })
+          $tensors.Add([pscustomobject]@{ Name = $name; Offset = $off })
         }
       } catch { $ok = $false }
       if ($ok -and $tensors.Count -eq $nTensors) { break }
@@ -310,6 +310,11 @@ if ($Lib) { return }
 # ---------- main ----------
 try {
   Say "=== llama-tuner $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ==="
+  # a running server would poison VRAM/RAM readings and validation runs
+  if (Get-Process llama-server -ErrorAction SilentlyContinue) {
+    Say 'Stopping running llama-server for clean measurement...'
+    Stop-Server
+  }
   # detect RAM
   $os = Get-CimInstance Win32_OperatingSystem
   $ramMB = [int]($os.TotalVisibleMemorySize / 1KB)
@@ -365,6 +370,9 @@ try {
     } else { $nonExpertBytes += $size }
   }
   $isMoE = ($expertBytes -gt 0 -and $perLayerExpert.Count -gt 0)
+  if ($expertBytes -lt 0 -or $nonExpertBytes -lt 0 -or ($expertBytes + $nonExpertBytes) -gt $modelMB * 2MB) {
+    throw 'gguf: tensor size accounting failed (offset sort/parse issue)'
+  }
   $perLayerExpertMB = if ($isMoE) { $expertBytes / $nLayers / 1MB } else { $modelMB * 1MB / $nLayers / 1MB }
   Say ("MoE experts: {0} GB total, ~{1:N0} MB/layer; non-expert weights: {2} GB" -f `
       [Math]::Round($expertBytes / 1GB, 2), $perLayerExpertMB, [Math]::Round($nonExpertBytes / 1GB, 2))
