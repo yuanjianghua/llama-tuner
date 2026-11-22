@@ -86,12 +86,23 @@ Run `tests\all.cmd` before and after touching `lib/`.
 
 ### Known limits
 
+- **Field-verified on one reference machine only** (16 GB RAM + RTX 5060 Laptop 8 GB — specs in the
+  measured section above). Multi-GPU and other hardware plans come from the same budget math and are
+  always backed by the real-launch validation loop, but have not been field-run elsewhere yet.
+  If you try it on another machine, sharing your `tuning_report.txt` would be very welcome.
 - Validation stops a running llama-server (changing parameters needs a restart anyway).
 - GGUF knowledge comes from parsing the file header; expert splitting relies on standard
   `_exps.` tensor naming — exotic archs fall back to plain `-ngl` offload.
 - Changing GPU/RAM **or context size** invalidates the cached K and triggers revalidation.
 - **Out of memory although VRAM looks free?** Almost certainly the commit budget — re-run
   `tune.cmd` and look for `COMMIT BUDGET LOW` / `PAGEFILE NOT MOUNTED`.
+- **SSD wear, honestly**: when the model is bigger than RAM (reference machine: 21.3 GB model vs
+  16 GB RAM), expert weights are streamed from NVMe through the OS page cache — up to ~21 GB of
+  *reads* each time the cache goes cold (reboot, or big apps evicting standby memory). SSD endurance
+  (TBW) is rated by *written* bytes; NAND wear from reads is negligible. The write side stays small
+  too (pagefile churn from an overcommitted working set — typically a few GB per session, orders of
+  magnitude below the hundreds of TBW a mainstream NVMe is rated for). To minimize even that:
+  add RAM (also the single best speed upgrade) and close other memory-heavy apps while running.
 - The first few requests after launch are slower: expert weights stream from NVMe into the OS page
   cache; it gets faster as you use it.
 
@@ -198,8 +209,10 @@ tests\all.cmd
 
 ### 已知边界
 
+- **目前只在一台参考实机上完整验证过**（16GB 内存 + RTX 5060 Laptop 8GB，配置见上文实测机型）。多显卡及其它硬件方案由同一套预算逻辑推导，并有“真实启动实测”兜底，但尚未在别的机器上实跑过——欢迎你在自己机器上跑完后把 `tuning_report.txt` 反馈给我。
 - 验证过程会结束本机正在运行的 llama-server（换参数本来也要重启）。
 - GGUF 结构通过解析文件头获得（不加载权重），对标准 llama.cpp 量化命名（`_exps.`）的 MoE 有效；极特殊架构会退回整层 `-ngl` 方案。
 - 换了显卡/内存后重跑一次 `tune.cmd` 即可重新调优；换**上下文大小**（含规则升级）同样会让缓存的 K 失效并重新实测。
 - **显存空余却报 OOM**？十有八九是提交预算：跑一次 `tune.cmd` 看有没有 `COMMIT BUDGET LOW` / `PAGEFILE NOT MOUNTED` 警告（2026-11-22 实机事故：D 盘 32GB 页面文件重启后未挂载，限额 47→17GB，加载模型假 OOM）。
+- **关于固态硬盘寿命（如实说）**：模型大于内存时（参考机 21.3GB 模型 vs 16GB 内存），专家权重要经系统页缓存从 NVMe 反复调入——缓存每变冷一次（重启、或被大内存应用挤掉），最多重读约 21GB，**这是读不是写**。SSD 寿命指标 TBW 按写入量计，读对颗粒的损耗几乎可忽略；写侧也有限（主要是内存超配带来的页面文件换出，通常一次会话几个 GB 量级），与主流 NVMe 数百 TBW 的质保相差几个数量级，正常使用不必焦虑。想再省：加内存（同时也是最大的提速项）、跑模型时关闭其它大内存应用。
 - 刚启动后的前几次请求偏慢是正常的：专家权重要从 NVMe 读进页缓存，越用越快。
