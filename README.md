@@ -49,29 +49,44 @@ tune.cmd -Force                       # 忽略缓存，重新实测验证
 ## 项目结构（改代码先看这里）
 
 ```
-tune.ps1 / tune.cmd     入口，只做编排（按顺序调用 lib/）
+tune.ps1 / tune.cmd     入口，只做编排，不定义任何逻辑函数（arch 测试强制）
+lib/modules.json        模块清单：加载顺序 + 允许的跨模块依赖（唯一事实源）
+lib/load.ps1            按清单加载模块，顺序错误当场报错
 lib/common.ps1          日志、停服务
 lib/sysinfo.ps1         硬件检测（内存 / NVIDIA 显卡列表）
-lib/gguf.ps1            GGUF 文件头解析 + 模型布局分析（纯读取）
+lib/gguf.ps1            GGUF 解析 + 布局分析（零依赖：不写日志、不认识别的模块）
+lib/plan.ps1            预算与参数计算（标记 pure：禁止一切副作用，最易测试）
+lib/state.ps1           config.json 读写与缓存有效性判断
 lib/discover.ps1        找模型、找 llama.cpp、必要时自动下载
-lib/plan.ps1            预算与参数计算（纯函数，无 I/O，最易测试）
-lib/validate.ps1        真实启动二分验证（唯一会起进程的模块）
+lib/validate.ps1        真实启动二分验证（唯一会起进程的模块；参数行由入口注入）
 lib/launcher.ps1        生成 start/stop .cmd 与桌面快捷方式
-tests/smoke.ps1         离线回归测试（不起服务、不联网，秒级跑完）
+tests/arch.ps1          架构耦合审计：扫描源码发现真实调用图，与 modules.json 逐一比对
+tests/smoke.ps1         行为回归（含二分搜索、GGUF 双格式、cmd 生成三连坑）
+tests/all.cmd           一次跑完两套测试
 ```
+
+低耦合不是口头约定，是**机器强制**的：
+
+- 任何模块偷偷调用别的模块的函数而没写进 `modules.json` → `tests/arch.ps1` 直接红，并点名是哪次调用；
+- 清单里声明了但代码里已不存在的依赖（僵尸依赖）同样报错；
+- `plan.ps1` 标记 `pure`，出现任何 I/O、进程、网络原语即报错；
+- 还检查：依赖图无环、清单顺序合法、函数不重名、不被内置别名遮蔽、每个文件 ≤250 行（防再长成 530 行巨石）、入口脚本不得定义函数。
 
 改 `lib/` 下任何文件前后都要跑：
 
 ```
-powershell -ExecutionPolicy Bypass -File tests\smoke.ps1
+tests\all.cmd
 ```
+
+（它跑过检测器自己也得自证有效——用"故意注入一句隐藏依赖"的演习确认过审计会红。）
 
 它固化了本项目踩过的所有坑：GGUF 新旧两种 dims 宽度、层号正则的跨十位区间与选择组括号、
 启动脚本的 `$$`/花括号/`timeout` 三个 cmd 生成 bug、CPU 方案不得出现 `-ngl 99`、
 多卡预算与 tensor-split 数值、以及"函数名不得被内置别名遮蔽"的命名规约。
 
 约定：所有函数带 `Tune/Gguf/Nvidia/Layer` 前缀（防别名遮蔽）；源码保持 ASCII；
-中文文本走 `[regex]::Unescape`；纯计算逻辑放 `lib/plan.ps1`（便于离线测试）。
+中文文本走 `[regex]::Unescape`；新增模块必须同时登记进 `lib/modules.json`（漏登记 arch 测试会拦）；
+跨模块要协作就把依赖写进清单，或者用注入（参考 `Find-BestTuneK` 的 argBuilder）。
 
 ## 已知边界
 
