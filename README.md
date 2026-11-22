@@ -28,6 +28,17 @@ server launches (auto-demote on failure) → generate start/stop scripts + deskt
    - `tuning_report.txt` — full report: hardware, model structure, chosen K, measured pp/tg;
    - `config.json` — caches the result; re-runs finish in seconds.
 
+### Day-to-day use (after tuning is done)
+
+1. Double-click the **启动LLM** (Start) desktop shortcut — llama-server launches minimized
+   (first model load takes ~1–2 min) and your browser opens the chat UI at `http://localhost:8080`
+   once the server reports healthy. Nothing to type.
+2. Chat in the browser, or treat it as an OpenAI-compatible API:
+   `POST http://localhost:8080/v1/chat/completions` (model name is in `tuning_report.txt`).
+3. Double-click **停止LLM** (Stop) when you are done.
+4. Swapped the model or the hardware? Run `tune.cmd` again — cached re-runs take seconds,
+   and anything that changed (GPU/RAM/model/context) triggers automatic revalidation.
+
 ### The tuning decisions it makes for you
 
 | Detected situation | Decision |
@@ -100,7 +111,14 @@ Run `tests\all.cmd` before and after touching `lib/`.
    - `tuning_report.txt` 是完整调优报告（硬件、模型结构、选定的 K 值、实测 t/s）
    - `config.json` 记住本次结果，重跑时秒级复用
 
-### 调优逻辑（它替你做了什么）
+#### 日常使用（调优完成之后）
+
+1. 双击桌面 **启动LLM**：llama-server 在后台启动（首次加载模型约 1~2 分钟），就绪后自动打开浏览器聊天页（`http://localhost:8080`），全程不用敲命令。
+2. 浏览器里直接对话；也可以当 OpenAI 兼容 API 用：`POST http://localhost:8080/v1/chat/completions`（model 名写在 `tuning_report.txt` 里）。
+3. 用完双击桌面 **停止LLM**。
+4. 以后换了模型或硬件，再双击一次 `tune.cmd` 即可——有缓存时几秒完成，变了的东西（显卡/内存/模型/上下文）会自动重新实测。
+
+## 调优逻辑（它替你做了什么）
 
 | 检测项 | 决策 |
 |---|---|
