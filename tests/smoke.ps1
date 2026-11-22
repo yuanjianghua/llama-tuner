@@ -1,12 +1,11 @@
-# tests/smoke.ps1 - OFFLINE regression suite (no model loading, no server, no network).
+# tests/smoke.ps1 - OFFLINE behavior regression suite (no model loading, no server, no network).
 # Run:  powershell -ExecutionPolicy Bypass -File tests\smoke.ps1 [-GgufPath D:\path\model.gguf]
-# Exit code 0 = all pass. Run this before every commit that touches lib/.
+# Architecture/coupling audit lives in tests/arch.ps1. Exit code 0 = all pass.
 param([string]$GgufPath = 'D:\Models\LLM\qwen36-UD-Q4_K_XL\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-foreach ($m in @('common', 'sysinfo', 'gguf', 'discover', 'plan', 'validate', 'launcher')) {
-  . (Join-Path $root ('lib\' + $m + '.ps1'))
-}
+. (Join-Path $root 'lib\load.ps1')
+foreach ($mp in Get-TuneModulePaths $root) { . $mp }
 
 $script:pass = 0
 $script:failList = @()
@@ -145,13 +144,26 @@ Assert-Ok ($s.Contains('ping -n 4 127.0.0.1') -and -not $s.Contains('timeout /t'
 Assert-Ok ($s.Contains('-ot "blk\.')) 'launcher carries expert offload regex'
 Assert-Ok ($b.Stop.Contains('taskkill /im llama-server.exe /f')) 'stop script kills server'
 
-# ---------- 7. naming rule: no public function may be shadowed by a builtin alias ----------
-$fnames = @(Get-ChildItem Function:\ | ForEach-Object { $_.Name })
-$anames = @(Get-Alias | ForEach-Object { $_.Name })
-$clash = @($fnames | Where-Object { $anames -contains $_ } | Where-Object { $_ -notmatch '^(Write-Host|Get-ChildItem)$' })
-# our own exported functions only (filter to lib-defined ones)
-$mine = @($clash | Where-Object { $_ -match 'Tune|Gguf|Nvidia|Layer|Best|Mini|Assert|Ok' })
-Assert-Ok ($mine.Count -eq 0) ('no function shadowed by alias' + $(if ($mine.Count) { ': ' + ($mine -join ',') } else { '' }))
+# ---------- 7. Find-BestTuneK binary search (Test-TunePlan + Stop-TuneServer stubbed;
+#             never touches the live server or starts processes here) ----------
+function Stop-TuneServer { }
+function Test-TunePlan($plan, [string]$argline, [string]$llamaExe, [int]$loadTimeoutSec, [string]$runtimeDir) {
+  $k = [int][regex]::Match($argline, '-K (\d+)').Groups[1].Value
+  $script:kTried += $k
+  if ($k -le $script:kTrueMax) { return @{ ok = $true; pp = 10; tg = 10; err = '' } }
+  return @{ ok = $false; pp = 0; tg = 0; err = 'simulated load failure' }
+}
+$kb = { param($k) ('-K ' + $k) }
+$script:kTrueMax = 7; $script:kTried = @()
+$r1 = Find-BestTuneK @{ Alias = 'x'; Port = 8080 } 10 'fake.exe' 'rt' $kb
+Assert-Ok ($r1.K -eq 6) ('search: true max 7 -> safety headroom K=6 (got ' + $r1.K + ')')
+Assert-Ok ((($script:kTried | Sort-Object -Unique) -join ',') -eq '5,6,7,8') ('search probes the right points (tried ' + (($script:kTried | Sort-Object -Unique) -join ',') + ')')
+$script:kTrueMax = -1; $script:kTried = @()
+$r2 = Find-BestTuneK @{ Alias = 'x'; Port = 8080 } 5 'fake.exe' 'rt' $kb
+Assert-Ok ($r2.K -eq 0) ('all launches fail -> K=0 fallback (got ' + $r2.K + ')')
+$script:kTrueMax = 3; $script:kTried = @()
+$r3 = Find-BestTuneK @{ Alias = 'x'; Port = 8080 } 3 'fake.exe' 'rt' $kb
+Assert-Ok ($r3.K -eq 2 -and $script:kTried.Count -le 3) ('everything fits -> K=Kmax-1 in few probes (K=' + $r3.K + ', probes=' + $script:kTried.Count + ')')
 
 # ---------- summary ----------
 Write-Host ''

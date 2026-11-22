@@ -1,4 +1,5 @@
-# lib/gguf.ps1 - GGUF header parsing + layout analysis. Pure read, no side effects. ASCII-only.
+# lib/gguf.ps1 - GGUF header parsing + layout analysis. Only reads the file: no logging,
+# no other module may be required (enforced by tests/arch.ps1, deps=[]). ASCII-only.
 # Format facts learned the hard way:
 #   - v3: string lengths, tensor/kv counts, offsets are u64
 #   - NEWER v3 files: tensor dims are u64 (older files u32) -> dual-hypothesis read
@@ -37,7 +38,6 @@ function Read-GgufValue($br, [int]$type, [int]$depth) {
 }
 
 function Parse-GgufHeader([string]$path) {
-  Write-TuneLog "Parsing GGUF header: $path"
   $fs = [IO.File]::OpenRead($path)
   try {
     $br = New-Object IO.BinaryReader($fs)
@@ -118,11 +118,8 @@ function Get-GgufLayout($hdr, [double]$modelBytes) {
     throw 'gguf: tensor size accounting failed (offset sort/parse issue)'
   }
   $perLayerExpertMB = if ($isMoE) { $expertBytes / $nLayers / 1MB } else { $modelBytes / $nLayers / 1MB }
-  Write-TuneLog ("Arch: $arch  layers=$nLayers (kv layers=$kvLayers, full_attn_interval=$faInt)  kv_heads=$kvh  head_dim=$hd  moe=$isMoE")
-  Write-TuneLog ("MoE experts: {0} GB total, ~{1:N0} MB/layer; non-expert weights: {2} GB" -f `
-      [Math]::Round($expertBytes / 1GB, 2), $perLayerExpertMB, [Math]::Round($nonExpertBytes / 1GB, 2))
   return [pscustomobject]@{
-    Arch = $arch; NLayers = $nLayers; KvLayers = $kvLayers; KvHeads = $kvh; HeadDim = $hd
+    Arch = $arch; NLayers = $nLayers; KvLayers = $kvLayers; KvHeads = $kvh; HeadDim = $hd; FaInt = $faInt
     IsMoE = $isMoE; ExpertBytes = $expertBytes; NonExpertBytes = $nonExpertBytes; PerLayerExpertMB = $perLayerExpertMB
   }
 }

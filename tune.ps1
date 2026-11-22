@@ -1,5 +1,7 @@
 # llama-tuner: auto-tune llama.cpp launch config for THIS machine.
-# Entry point / orchestration ONLY. Logic lives in lib/*.ps1, offline tests in tests/smoke.ps1.
+# Entry point / orchestration ONLY (defines no logic functions; tests/arch.ps1 enforces this).
+# Modules in lib/, load order + allowed dependencies declared in lib/modules.json.
+# Offline tests: tests/arch.ps1 (coupling audit) + tests/smoke.ps1 (behavior regressions).
 # ASCII-only source (safe on PS 5.1 with any codepage). Chinese labels use \u escapes.
 #
 # Usage:  tune.cmd                                  detect -> validate by real launches -> launchers + shortcuts + report
@@ -18,9 +20,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $root = $PSScriptRoot
-foreach ($m in @('common', 'sysinfo', 'gguf', 'discover', 'plan', 'validate', 'launcher')) {
-  . (Join-Path $root ("lib\" + $m + ".ps1"))
-}
+. (Join-Path $root 'lib\load.ps1')
+foreach ($mp in Get-TuneModulePaths $root) { . $mp }
 $cfgPath    = Join-Path $root 'config.json'
 $reportPath = Join-Path $root 'tuning_report.txt'
 $startCmd   = Join-Path $root 'start_llm.cmd'
@@ -50,8 +51,13 @@ try {
   $modelBytes = (Get-Item $model).Length
   $modelMB = [Math]::Round($modelBytes / 1MB)
   Write-TuneLog "Model: $model  ($([Math]::Round($modelMB/1024,2)) GiB)"
+  Write-TuneLog "Parsing GGUF header: $model"
   $hdr = Parse-GgufHeader $model
   $layout = Get-GgufLayout $hdr $modelBytes
+  Write-TuneLog ("Arch: {0}  layers={1} (kv layers={2}, full_attn_interval={3})  kv_heads={4}  head_dim={5}  moe={6}" -f `
+      $layout.Arch, $layout.NLayers, $layout.KvLayers, $layout.FaInt, $layout.KvHeads, $layout.HeadDim, $layout.IsMoE)
+  Write-TuneLog ("MoE experts: {0} GB total, ~{1:N0} MB/layer; non-expert weights: {2} GB" -f `
+      [Math]::Round($layout.ExpertBytes / 1GB, 2), $layout.PerLayerExpertMB, [Math]::Round($layout.NonExpertBytes / 1GB, 2))
 
   # 3. plan (pure math in lib/plan.ps1)
   $p = New-TunePlan $model $modelMB $ramMB $layout $gpu $Port
@@ -74,15 +80,16 @@ try {
 
   # 5. validated K (cached unless hardware/model changed or -Force)
   $Kbest = $p.Kmax
-  $cfgData = $null
-  if (Test-Path $cfgPath) { try { $cfgData = Get-Content $cfgPath -Raw | ConvertFrom-Json } catch {} }
+  $cfgData = Read-TuneConfig $cfgPath
   $gpuSig = $(if ($gpu) { $gpu.Sig } else { 'cpu' })
   if (-not $SkipValidate -and $p.Kmax -gt 0 -and $gpu) {
-    if ($cfgData -and (-not $Force) -and $null -ne $cfgData.K -and $cfgData.GpuSig -eq $gpuSig -and $cfgData.ModelPath -eq $model) {
-      $Kbest = [Math]::Min([int]$cfgData.K, $p.Kmax)
+    $cachedK = Get-TuneCachedK $cfgData $gpuSig $model
+    if ((-not $Force) -and $cachedK -ge 0) {
+      $Kbest = [Math]::Min($cachedK, $p.Kmax)
       Write-TuneLog ("Reusing validated K=$Kbest (hardware and model unchanged; use -Force to revalidate)")
     } else {
-      $Kbest = (Find-BestTuneK $plan $p.Kmax $llamaExe $runtimeDir).K
+      $planArgBuilder = { param($k) Build-TuneArgs $plan $k }
+      $Kbest = (Find-BestTuneK $plan $p.Kmax $llamaExe $runtimeDir $planArgBuilder).K
     }
   }
 
@@ -91,7 +98,7 @@ try {
   Write-TuneLaunchers $startCmd $stopCmd $bodies $plan ([bool]$NoShortcut) $root
   $cfg = @{ ModelPath = $model; LlamaDir = $llamaDir; Port = $Port; K = $Kbest;
             Kind = $plan.Kind; NCtx = $plan.NCtx; KvQ8 = $plan.KvQ8; GpuSig = $gpuSig; TunedAt = (Get-Date).ToString('o') }
-  Set-Content -Path $cfgPath -Value ($cfg | ConvertTo-Json) -Encoding ASCII
+  Write-TuneConfig $cfgPath $cfg
   Write-TuneLog "Saved $cfgPath"
   Write-TuneLog '=== DONE. Use the desktop shortcuts (or start_llm.cmd). First requests are slower until page cache warms up. ==='
   Save-TuneLog $reportPath

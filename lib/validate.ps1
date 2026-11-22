@@ -37,13 +37,15 @@ function Test-TunePlan($plan, [string]$argline, [string]$llamaExe, [int]$loadTim
 }
 
 # Returns @{ K = best-minus-headroom; LastMeas = $t }. K=0 means CPU-experts fallback.
-function Find-BestTuneK($plan, [int]$Kmax, [string]$llamaExe, [string]$runtimeDir) {
+# argBuilder is INJECTED ({ param($k) ... }) on purpose: this module must not know how the
+# argument line is built (keeps validate decoupled from plan.ps1; testable with a fake builder).
+function Find-BestTuneK($plan, [int]$Kmax, [string]$llamaExe, [string]$runtimeDir, [scriptblock]$argBuilder) {
   Write-TuneLog 'Validating with real launches (binary search, failures cost ~30s, each success ~1-2 min)...'
   Stop-TuneServer
   $lo = 0; $hi = $Kmax; $best = 0; $last = $null
   while ($lo -le $hi) {
     $mid = [int](($lo + $hi) / 2)
-    $t = Test-TunePlan $plan (Build-TuneArgs $plan $mid) $llamaExe 420 $runtimeDir
+    $t = Test-TunePlan $plan (& $argBuilder $mid) $llamaExe 420 $runtimeDir
     if ($t.ok) { Write-TuneLog ("  K={0} OK  (pp {1} t/s, tg {2} t/s)" -f $mid, $t.pp, $t.tg); $best = $mid; $last = $t; $lo = $mid + 1 }
     else       { Write-TuneLog ("  K={0} FAILED: {1}" -f $mid, $t.err); $hi = $mid - 1 }
   }

@@ -1,0 +1,14 @@
+{
+  "_comment": "Single source of truth for module load order and allowed cross-module dependencies. tests/arch.ps1 fails if the real call graph deviates from this table (in either direction). pure=true means: no side-effect primitives, no dependencies.",
+  "modules": [
+    { "name": "load",     "file": "load.ps1",     "deps": [] },
+    { "name": "common",   "file": "common.ps1",   "deps": [] },
+    { "name": "sysinfo",  "file": "sysinfo.ps1",  "deps": [] },
+    { "name": "gguf",     "file": "gguf.ps1",     "deps": [] },
+    { "name": "plan",     "file": "plan.ps1",     "deps": [], "pure": true },
+    { "name": "state",    "file": "state.ps1",    "deps": [] },
+    { "name": "discover", "file": "discover.ps1", "deps": ["common"] },
+    { "name": "validate", "file": "validate.ps1", "deps": ["common"] },
+    { "name": "launcher", "file": "launcher.ps1", "deps": ["common"] }
+  ]
+}
