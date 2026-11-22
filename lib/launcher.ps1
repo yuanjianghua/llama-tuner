@@ -15,6 +15,8 @@ echo Starting llama-server (auto-tuned for this machine). Loading model, please 
 start "llama-server" /min "$llamaExe" $argLine
 :waitloop
 ping -n 4 127.0.0.1 >nul
+tasklist /fi "imagename eq llama-server.exe" | find /i "llama-server.exe" >nul
+if errorlevel 1 (echo ERROR: llama-server exited during loading - re-run this file in a console window to see the error. & exit /b 1)
 powershell -NoProfile -Command "$waith"
 if errorlevel 1 goto waitloop
 :open

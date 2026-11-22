@@ -141,6 +141,7 @@ Assert-Ok ($s.Contains('$h=Invoke-RestMethod http://127.0.0.1:8080/health')) 'he
 Assert-Ok ($s.Contains('{exit 10}') -and $s.Contains('{exit 0}')) 'literal braces survive (-f format bug regression)'
 Assert-Ok (-not $s.Contains('$$h')) 'no $$ in launcher'
 Assert-Ok ($s.Contains('ping -n 4 127.0.0.1') -and -not $s.Contains('timeout /t')) 'ping sleep, no timeout stdin dependency'
+Assert-Ok ($s.Contains('tasklist /fi "imagename eq llama-server.exe"') -and $s.Contains('exited during loading')) 'wait loop has dead-process watchdog (regression: infinite wait when load fails)'
 Assert-Ok ($s.Contains('-ot "blk\.')) 'launcher carries expert offload regex'
 Assert-Ok ($b.Stop.Contains('taskkill /im llama-server.exe /f')) 'stop script kills server'
 
