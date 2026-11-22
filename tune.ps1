@@ -20,7 +20,7 @@ $reportPath = Join-Path $root 'tuning_report.txt'
 $startCmd   = Join-Path $root 'start_llm.cmd'
 $stopCmd    = Join-Path $root 'stop_llm.cmd'
 $script:report = New-Object System.Collections.Generic.List[string]
-function R($m) { Write-Host $m; $script:report.Add($m) }
+function Say($m) { Write-Host $m; $script:report.Add($m) }
 
 # ---------- helpers ----------
 function Stop-Server {
@@ -77,7 +77,7 @@ function Read-GgufValue($br, [int]$type, [int]$depth) {
   }
 }
 function Parse-GgufHeader([string]$path) {
-  R "Parsing GGUF header: $path"
+  Say "Parsing GGUF header: $path"
   $fs = [IO.File]::OpenRead($path)
   try {
     $br = New-Object IO.BinaryReader($fs)
@@ -136,7 +136,7 @@ function Find-Llama([string]$hint) {
   return $null
 }
 function Install-Llama([int]$gpuMB) {
-  R 'llama.cpp not found - downloading official Windows release from GitHub...'
+  Say 'llama.cpp not found - downloading official Windows release from GitHub...'
   $dest = Join-Path $root 'runtime\llama'
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
   $rel = Invoke-RestMethod 'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest' -TimeoutSec 30
@@ -153,7 +153,7 @@ function Install-Llama([int]$gpuMB) {
   New-Item -ItemType Directory -Force -Path $tmp | Out-Null
   foreach ($a in @($main, $cudart) | Where-Object { $_ }) {
     $z = Join-Path $tmp $a.name
-    R ("  downloading " + $a.name)
+    Say ("  downloading " + $a.name)
     Invoke-WebRequest $a.browser_download_url -OutFile $z -TimeoutSec 1800
     $ex = Join-Path $tmp ('x_' + [IO.Path]::GetFileNameWithoutExtension($a.name))
     if (Test-Path $ex) { Remove-Item $ex -Recurse -Force }
@@ -267,8 +267,8 @@ timeout /t 2
 "@
   Set-Content -Path $startCmd -Value $startBody -Encoding ASCII
   Set-Content -Path $stopCmd  -Value $stopBody  -Encoding ASCII
-  R "Wrote $startCmd"
-  R "Wrote $stopCmd"
+  Say "Wrote $startCmd"
+  Say "Wrote $stopCmd"
   if ($NoShortcut) { return }
   $desktop = [Environment]::GetFolderPath('Desktop')
   $ws = New-Object -ComObject WScript.Shell
@@ -283,16 +283,16 @@ timeout /t 2
   $sc2.TargetPath = $stopCmd; $sc2.WorkingDirectory = $root
   $sc2.IconLocation = "$env:SystemRoot\System32\shell32.dll,132"
   $sc2.Description = 'Stop llama-server'; $sc2.Save()
-  R "Desktop shortcuts created: $lnkStart ; $lnkStop"
+  Say "Desktop shortcuts created: $lnkStart ; $lnkStop"
 }
 
 # ---------- main ----------
 try {
-  R "=== llama-tuner $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ==="
+  Say "=== llama-tuner $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ==="
   # detect RAM
   $os = Get-CimInstance Win32_OperatingSystem
   $ramMB = [int]($os.TotalVisibleMemorySize / 1KB)
-  R ("RAM total: {0} GB" -f [Math]::Round($ramMB / 1024, 1))
+  Say ("RAM total: {0} GB" -f [Math]::Round($ramMB / 1024, 1))
   # detect GPU(s)
   $gpus = Get-NvidiaGpus
   $gpu = $null
@@ -302,15 +302,15 @@ try {
       UsedMB  = ($gpus | Measure-Object -Property UsedMB  -Sum).Sum
       Count   = $gpus.Count
     }
-    R ("GPU x{0}: {1}" -f $gpus.Count, (($gpus | ForEach-Object { "$($_.Name) $($_.TotalMB)MB (used $($_.UsedMB)MB)" }) -join '; '))
-    if ($gpus.Count -gt 1) { R 'Multi-GPU: VRAM budgets aggregated; per-GPU overhead reserved; tensor-split proportional to card size will be emitted. Cross-card sync runs over PCIe, so gains are sub-linear.' }
+    Say ("GPU x{0}: {1}" -f $gpus.Count, (($gpus | ForEach-Object { "$($_.Name) $($_.TotalMB)MB (used $($_.UsedMB)MB)" }) -join '; '))
+    if ($gpus.Count -gt 1) { Say 'Multi-GPU: VRAM budgets aggregated; per-GPU overhead reserved; tensor-split proportional to card size will be emitted. Cross-card sync runs over PCIe, so gains are sub-linear.' }
   } else {
-    R 'GPU: no NVIDIA GPU detected -> CPU-only plan (AMD/Vulkan users: tune manually)'
+    Say 'GPU: no NVIDIA GPU detected -> CPU-only plan (AMD/Vulkan users: tune manually)'
   }
 
   $model = Find-Model $ModelPath
   $modelMB = [Math]::Round((Get-Item $model).Length / 1MB)
-  R "Model: $model  ($([Math]::Round($modelMB/1024,2)) GiB)"
+  Say "Model: $model  ($([Math]::Round($modelMB/1024,2)) GiB)"
 
   $hdr = Parse-GgufHeader $model
   $arch = [string]$hdr.Meta['general.architecture']
@@ -321,7 +321,7 @@ try {
   $heads = [int]$hdr.Meta["$arch.attention.head_count"]; if (-not $heads) { $heads = 32 }
   $embd = [int]$hdr.Meta["$arch.embedding_length"]; if (-not $embd) { $embd = 4096 }
   $hd = [Math]::Floor($embd / $heads)
-  R ("Arch: $arch  layers=$nLayers  kv_heads=$kvh  head_dim=$hd")
+  Say ("Arch: $arch  layers=$nLayers  kv_heads=$kvh  head_dim=$hd")
 
   # tensor layout: sizes inferred from sorted offsets
   $ts = $hdr.Tensors | Sort-Object Offset
@@ -341,7 +341,7 @@ try {
   }
   $isMoE = ($expertBytes -gt 0 -and $perLayerExpert.Count -gt 0)
   $perLayerExpertMB = if ($isMoE) { $expertBytes / $nLayers / 1MB } else { $modelMB * 1MB / $nLayers / 1MB }
-  R ("MoE experts: {0} GB total, ~{1:N0} MB/layer; non-expert weights: {2} GB" -f `
+  Say ("MoE experts: {0} GB total, ~{1:N0} MB/layer; non-expert weights: {2} GB" -f `
       [Math]::Round($expertBytes / 1GB, 2), $perLayerExpertMB, [Math]::Round($nonExpertBytes / 1GB, 2))
 
   # context + KV budget
@@ -350,7 +350,7 @@ try {
   $kvMB = [int]((2 * $nLayers * $nctx * $kvh * $hd * $(if ($kvq8) { 1.06 } else { 2 })) / 1MB)
   $nGpu = $(if ($gpu) { $gpu.Count } else { 1 })
   $reserveMB = 650 * $nGpu   # compute buffers + CUDA graphs + slack, per GPU
-  R ("Plan ctx={0}  KV={1} MB ({2})  gpu reserve={3} MB" -f $nctx, $kvMB, $(if ($kvq8) { 'q8_0' } else { 'f16' }), $reserveMB)
+  Say ("Plan ctx={0}  KV={1} MB ({2})  gpu reserve={3} MB" -f $nctx, $kvMB, $(if ($kvq8) { 'q8_0' } else { 'f16' }), $reserveMB)
 
   $alias = ([regex]::Replace([IO.Path]::GetFileNameWithoutExtension($model), '[^A-Za-z0-9_.-]', '_')) -replace '\.gguf$',''
   if ($alias.Length -gt 32) { $alias = $alias.Substring(0, 32) }
@@ -363,17 +363,17 @@ try {
     $freeBudget = $gpu.TotalMB - $gpu.UsedMB - $reserveMB - $kvMB
     $usable = $freeBudget * 0.96
     if ($modelMB -le $usable) {
-      $Kmax = $nLayers; R 'Model fits fully in VRAM -> full offload (no expert split needed).'
+      $Kmax = $nLayers; Say 'Model fits fully in VRAM -> full offload (no expert split needed).'
     } elseif ($isMoE) {
       $forExperts = $usable - ($nonExpertBytes / 1MB)
       $Kmax = [Math]::Max(0, [Math]::Min($nLayers - 1, [Math]::Floor($forExperts / $perLayerExpertMB)))
-      R ("Max experts resident layers (estimate): K=$Kmax (each layer keeps its experts on GPU)")
+      Say ("Max experts resident layers (estimate): K=$Kmax (each layer keeps its experts on GPU)")
     } else {
       $Kmax = [Math]::Max(0, [Math]::Min($nLayers, [Math]::Floor($usable / $perLayerExpertMB)))
-      R ("Dense model partial offload (estimate): ngl=$Kmax")
+      Say ("Dense model partial offload (estimate): ngl=$Kmax")
     }
-  } else { $Kmax = 0; R 'CPU-only mode.' }
-  if ($modelMB -gt $ramMB) { R 'NOTE: model larger than RAM -> NVMe page cache tiering; close big apps while running for best speed.' }
+  } else { $Kmax = 0; Say 'CPU-only mode.' }
+  if ($modelMB -gt $ramMB) { Say 'NOTE: model larger than RAM -> NVMe page cache tiering; close big apps while running for best speed.' }
 
   # validate downward (binary search max K that actually boots)
   $script:llamaExeDir = Find-Llama $LlamaDir
@@ -382,33 +382,33 @@ try {
     $script:llamaExeDir = Install-Llama $(if ($gpu) { $gpu.TotalMB } else { 0 })
   }
   $script:llamaExe = Join-Path $script:llamaExeDir 'llama-server.exe'
-  R "llama.cpp: $script:llamaExeDir"
+  Say "llama.cpp: $script:llamaExeDir"
   $script:plan = $plan
 
   $Kbest = $Kmax; $meas = $null
   if (-not $SkipValidate -and $Kmax -gt 0 -and $gpu) {
-    R 'Validating with real launches (binary search, failures cost ~30s, each success ~1-2 min)...'
+    Say 'Validating with real launches (binary search, failures cost ~30s, each success ~1-2 min)...'
     Stop-Server
     $lo = 0; $hi = $Kmax; $best = 0
     while ($lo -le $hi) {
       $mid = [int](($lo + $hi) / 2)
       $t = Test-Plan (Build-Args $plan $mid) 420
-      if ($t.ok) { R ("  K={0} OK  (pp {1} t/s, tg {2} t/s)" -f $mid, $t.pp, $t.tg); $best = $mid; $meas = $t; $lo = $mid + 1 }
-      else       { R ("  K={0} FAILED: {1}" -f $mid, $t.err); $hi = $mid - 1 }
+      if ($t.ok) { Say ("  K={0} OK  (pp {1} t/s, tg {2} t/s)" -f $mid, $t.pp, $t.tg); $best = $mid; $meas = $t; $lo = $mid + 1 }
+      else       { Say ("  K={0} FAILED: {1}" -f $mid, $t.err); $hi = $mid - 1 }
     }
     $Kbest = [Math]::Max(0, $best - 1)   # keep 1 layer headroom for KV growth / drivers
-    if ($Kbest -ne $best) { R "  -> keeping safety headroom: K=$Kbest" }
+    if ($Kbest -ne $best) { Say "  -> keeping safety headroom: K=$Kbest" }
   }
 
   Write-Launchers $plan $Kbest
   $cfg = @{ ModelPath = $model; LlamaDir = $script:llamaExeDir; Port = $Port; K = $Kbest;
             Kind = $plan.Kind; NCtx = $nctx; KvQ8 = $kvq8; TunedAt = (Get-Date).ToString('o') }
   Set-Content -Path $cfgPath -Value ($cfg | ConvertTo-Json) -Encoding ASCII
-  R "Saved $cfgPath"
-  R '=== DONE. Use the desktop shortcuts (or start_llm.cmd). First requests are slower until page cache warms up. ==='
+  Say "Saved $cfgPath"
+  Say '=== DONE. Use the desktop shortcuts (or start_llm.cmd). First requests are slower until page cache warms up. ==='
 } catch {
-  R ("ERROR: " + $_.Exception.Message)
-  R 'Fix the issue and re-run tune.cmd'
+  Say ("ERROR: " + $_.Exception.Message)
+  Say 'Fix the issue and re-run tune.cmd'
   $script:report | Set-Content -Path $reportPath -Encoding UTF8
   exit 1
 }
