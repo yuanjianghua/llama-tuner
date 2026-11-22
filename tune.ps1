@@ -10,7 +10,8 @@ param(
   [switch]$SkipValidate,
   [switch]$NoShortcut,
   [switch]$NoDownload,
-  [switch]$Force
+  [switch]$Force,
+  [switch]$Lib   # only define functions (for dot-sourcing in tests), do not run
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -94,14 +95,32 @@ function Parse-GgufHeader([string]$path) {
       if (-not $meta.ContainsKey($key)) { $meta[$key] = $val }
     }
     $tensors = New-Object System.Collections.Generic.List[object]
-    for ($i = 0; $i -lt $nTensors; $i++) {
-      $name = Read-GgufStr $br
-      $nDims = [int]$br.ReadUInt32()
-      for ($d = 0; $d -lt $nDims; $d++) { [void]$br.ReadUInt32() }
-      [void]$br.ReadUInt32()               # dtype (sizes inferred from offsets instead)
-      $off = $br.ReadUInt64()
-      $tensors.Add(@{ Name = $name; Offset = $off })
+    # tensor info: n_dims u32, dims u32[] or u64[] (newer v3 files use u64), dtype u32, offset u64.
+    # Try 64-bit dims first; if any entry looks implausible, rewind and re-read with 32-bit dims.
+    $tensorStart = $fs.Position
+    foreach ($dimBits in @(64, 32)) {
+      [void]$fs.Seek($tensorStart, 'Begin')
+      $ok = $true
+      $tensors.Clear()
+      try {
+        for ($i = 0; $i -lt $nTensors; $i++) {
+          $name = Read-GgufStr $br
+          if ($name.Length -lt 1 -or $name.Length -gt 200) { $ok = $false; break }
+          $nDims = [int]$br.ReadUInt32()
+          if ($nDims -lt 1 -or $nDims -gt 4) { $ok = $false; break }
+          for ($d = 0; $d -lt $nDims; $d++) {
+            $dim = if ($dimBits -eq 64) { $br.ReadUInt64() } else { [uint64]$br.ReadUInt32() }
+            if ($dim -gt 1000000000) { $ok = $false; break }
+          }
+          if (-not $ok) { break }
+          [void]$br.ReadUInt32()               # dtype (sizes inferred from offsets instead)
+          $off = $br.ReadUInt64()
+          $tensors.Add(@{ Name = $name; Offset = $off })
+        }
+      } catch { $ok = $false }
+      if ($ok -and $tensors.Count -eq $nTensors) { break }
     }
+    if ($tensors.Count -ne $nTensors) { throw 'gguf: cannot parse tensor info (tried 64-bit and 32-bit dims)' }
     return @{ Version = $version; Tensors = $tensors; Meta = $meta }
   } finally { $fs.Dispose() }
 }
@@ -286,6 +305,8 @@ timeout /t 2
   Say "Desktop shortcuts created: $lnkStart ; $lnkStop"
 }
 
+if ($Lib) { return }
+
 # ---------- main ----------
 try {
   Say "=== llama-tuner $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ==="
@@ -294,7 +315,7 @@ try {
   $ramMB = [int]($os.TotalVisibleMemorySize / 1KB)
   Say ("RAM total: {0} GB" -f [Math]::Round($ramMB / 1024, 1))
   # detect GPU(s)
-  $gpus = Get-NvidiaGpus
+  $gpus = @(Get-NvidiaGpus)
   $gpu = $null
   if ($gpus.Count -gt 0) {
     $gpu = @{
@@ -320,8 +341,12 @@ try {
   $kvh = [int]$hdr.Meta["$arch.attention.head_count_kv"]; if (-not $kvh) { $kvh = 4 }
   $heads = [int]$hdr.Meta["$arch.attention.head_count"]; if (-not $heads) { $heads = 32 }
   $embd = [int]$hdr.Meta["$arch.embedding_length"]; if (-not $embd) { $embd = 4096 }
-  $hd = [Math]::Floor($embd / $heads)
-  Say ("Arch: $arch  layers=$nLayers  kv_heads=$kvh  head_dim=$hd")
+  $hd = [int]$hdr.Meta["$arch.attention.key_length"]
+  if (-not $hd) { $hd = [Math]::Floor($embd / $heads) }
+  $isMoeMeta = [int]$hdr.Meta["$arch.expert_count"] -gt 1
+  $faInt = [int]$hdr.Meta["$arch.full_attention_interval"]; if (-not $faInt -or $faInt -lt 1) { $faInt = 1 }
+  $kvLayers = [int][Math]::Ceiling($nLayers / $faInt)
+  Say ("Arch: $arch  layers=$nLayers (kv layers=$kvLayers, full_attn_interval=$faInt)  kv_heads=$kvh  head_dim=$hd  experts=$isMoeMeta")
 
   # tensor layout: sizes inferred from sorted offsets
   $ts = $hdr.Tensors | Sort-Object Offset
@@ -347,7 +372,7 @@ try {
   # context + KV budget
   $nctx = if ($modelMB -gt $ramMB * 0.8) { 16384 } else { 32768 }
   $kvq8 = $modelMB -gt ($ramMB * 0.7)
-  $kvMB = [int]((2 * $nLayers * $nctx * $kvh * $hd * $(if ($kvq8) { 1.06 } else { 2 })) / 1MB)
+  $kvMB = [int]((2 * $kvLayers * $nctx * $kvh * $hd * $(if ($kvq8) { 1.06 } else { 2 })) / 1MB)
   $nGpu = $(if ($gpu) { $gpu.Count } else { 1 })
   $reserveMB = 650 * $nGpu   # compute buffers + CUDA graphs + slack, per GPU
   Say ("Plan ctx={0}  KV={1} MB ({2})  gpu reserve={3} MB" -f $nctx, $kvMB, $(if ($kvq8) { 'q8_0' } else { 'f16' }), $reserveMB)
