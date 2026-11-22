@@ -35,9 +35,9 @@ copy the folder to any Windows machine, double-click `tune.cmd`, get a launch sc
 **Detect hardware → parse the GGUF header → compute the optimal VRAM split → validate with real
 server launches (auto-demote on failure) → generate start/stop scripts + desktop shortcuts.**
 
-1. Copy this folder anywhere (USB stick is fine — the tool is self-contained).
-2. Keep your `.gguf` model on disk. It auto-picks the largest GGUF under `D:\Models` and `C:\Users`
-   (or pass `-ModelPath`).
+1. **Unzip first** (if you downloaded a ZIP, extract the whole folder — double-clicking inside the ZIP archive only unpacks one file and breaks the `lib\` paths). Copy the folder anywhere (USB stick is fine — the tool is self-contained).
+2. Keep your `.gguf` model on disk. It auto-picks the largest GGUF under `D:\Models`, `D:\Dev` and `C:\Users`
+   (or pass `-ModelPath`). No model yet? See Prerequisites for where to get one.
 3. Double-click `tune.cmd`. llama.cpp not installed? It downloads the official CUDA/Vulkan/CPU
    release from GitHub automatically (`-NoDownload` disables that).
 4. First run takes ~5–15 min (includes real load validation). You get:
@@ -91,6 +91,18 @@ but has never been run on a physical dual-GPU machine** (the reference machine b
   <https://aka.ms/vs/17/release/vc_redist.x64.exe>.
 - *Port 8080 busy* — `tune.cmd -Port 8081`.
 
+### FAQ
+
+- *First requests are slow, then get faster?* Normal — expert weights stream from NVMe into the OS
+  page cache; minutes of use and it warms up.
+- *Chat response suddenly stops mid-sentence in a very long conversation?* The context window is
+  full — start a new chat (numbers: 32K context here).
+- *Conversation got cut when I re-ran tune.cmd?* Expected: re-validation must restart the server.
+- *API smoke test:*
+  `curl http://localhost:8080/v1/chat/completions -H "Content-Type: application/json" -d "{\"model\":\"Qwen3.6-35B-A3B-UD-Q4_K_XL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"`
+- *Uninstall:* delete the folder and the two desktop shortcuts. Nothing else was touched (unless you
+  ran `-FixPagefile`, whose pagefile entry you manage via System settings).
+
 ### Flags
 
 ```
@@ -102,6 +114,7 @@ tune.cmd -Port 8081                   # custom port
 tune.cmd -NoShortcut -NoDownload      # no desktop shortcuts, no network
 tune.cmd -Force                       # ignore cache, revalidate with real launches
 tune.cmd -FixPagefile                 # re-register unmounted pagefiles (admin, then reboot)
+tune.cmd -CpuOnly                     # have an NVIDIA GPU but want CPU-only anyway
 ```
 
 ### Architecture enforced by tests
@@ -186,10 +199,23 @@ Reference machine (the only machine field-verified so far) · 参考实机（目
 
 把 llama.cpp 的"专家驻留划分"调优思路做成全自动流程：**检测硬件 → 解析模型结构 → 计算最优显存划分 → 真实启动验证（失败自动降档）→ 生成启动脚本 + 桌面快捷方式**。
 
+### 开始之前（1 分钟自查）
+
+| 需要什么 | 说明 |
+|---|---|
+| Windows 10/11（64 位） | 自带 PowerShell，不用装任何别的东西；全程不需要管理员权限（只有 `-FixPagefile` 需要） |
+| 已装 NVIDIA 显卡驱动 | 任务管理器 → 性能，能看到显卡型号即已装。看不到/显示"Microsoft 基本显示适配器"→ 先装驱动（Windows 更新→可选更新，或 https://www.nvidia.com/en-us/drivers/ ）；工具也会自动检出并提醒。A 卡用户需自行换 Vulkan 版 llama.cpp 手动调 |
+| 磁盘空间 | 模型文件所在盘：模型大小 + 至少 8GB 余量（页面文件/临时空间），空间不足工具会警告 |
+| 一个 GGUF 模型 | 还没有模型？去 [Hugging Face](https://huggingface.co/models?library=gguf) 或国内 [ModelScope 魔搭](https://modelscope.cn) 下载 GGUF 量化文件；8GB 显存 + 16GB 内存的机器建议选 20~35B MoE 模型的 Q4_K_XL / Q4_K_M 量化 |
+| llama.cpp | 可以不装，工具自动下载；GitHub 太慢见下方「故障排查」 |
+| 网络 | 仅首次运行需要（下载 llama.cpp / 查版本） |
+
+**这个工具不会做的事**：不替你下载模型（上面有下载入口）、不替你装显卡驱动（会检测并提醒你）、不作为系统服务常驻（起停用桌面两个快捷方式）。除了自己文件夹内的文件和桌面两个快捷方式，它不碰系统任何东西（只有 `-FixPagefile` 例外，且需要你明确执行并同意 UAC）。
+
 ### 在一台新电脑上的用法
 
-1. 把整个 `llama-tuner` 文件夹拷到新电脑任意位置（U盘即可，工具本身自包含）。
-2. 确保模型 `.gguf` 在硬盘上（脚本会自动搜索 `D:\Models`、`C:\Users` 下最大的 gguf）。
+1. **先解压**：下载的是 ZIP 就必须先**完整解压**再双击——在压缩包里直接双击只会解出那一个文件，`lib\` 目录不在旁边必然报错。解压后整个文件夹放哪都行（U盘也行，工具自包含）。
+2. 确保模型 `.gguf` 在硬盘上（自动搜索 `D:\Models`、`D:\Dev`、`C:\Users` 下最大的 gguf；没有模型见上方下载入口，或 `-ModelPath` 指定）。
 3. 双击 `tune.cmd`。没有装 llama.cpp 也没关系——脚本会自动从 GitHub 下载官方 CUDA/Vulkan/CPU 发行版（可用 `-NoDownload` 关闭）。
 4. 等待完成（首次含模型加载验证，约 5~15 分钟）。完成后：
    - 桌面出现 **启动LLM** / **停止LLM** 两个快捷方式（服务器健康后自动打开 `http://localhost:8080`）
@@ -234,6 +260,15 @@ Reference machine (the only machine field-verified so far) · 参考实机（目
 - *弹窗缺 `VCRUNTIME140.dll` / `MSVCP140.dll`*——安装 VC++ 2015-2022 运行库(x64)：<https://aka.ms/vs/17/release/vc_redist.x64.exe>。
 - *8080 端口被占*——`tune.cmd -Port 8081`。
 
+### 常见问题
+
+- *刚启动前几次对话明显慢？* 正常：专家权重要从 NVMe 读进系统页缓存，用几分钟就快了。
+- *超长聊天回答说到一半突然停？* 上下文用满了——开个新会话（本机上下文 32K，普通聊天很难碰到；写长文/塞大文件容易碰到）。
+- *重跑了 tune.cmd，正在进行的对话被掐断？* 预期行为：重新实测必须重启服务器。
+- *API 冒烟测试：*
+  `curl http://localhost:8080/v1/chat/completions -H "Content-Type: application/json" -d "{\"model\":\"Qwen3.6-35B-A3B-UD-Q4_K_XL\",\"messages\":[{\"role\":\"user\",\"content\":\"你好\"}]}"`
+- *怎么卸载：* 删掉本文件夹 + 桌面两个快捷方式即可，系统里没有别的东西（若用过 `-FixPagefile`，页面文件设置请到 系统属性→高级→性能→高级→虚拟内存 里自行调整）。
+
 ### 常用参数
 
 ```
@@ -245,6 +280,8 @@ tune.cmd -Port 8081                   # 换端口
 tune.cmd -NoShortcut -NoDownload      # 不建快捷方式、不联网下载
 tune.cmd -Force                       # 忽略缓存，重新实测验证
 tune.cmd -FixPagefile                 # 重新注册"配置了但没挂载"的页面文件（需管理员，完成后重启）
+tune.cmd -CpuOnly                     # 明明有 N 卡但就是想先用 CPU 跑
+tune.cmd -CpuOnly                     # 明明有 N 卡但就是想先用 CPU 跑
 ```
 
 ### 项目结构（改代码先看这里）
