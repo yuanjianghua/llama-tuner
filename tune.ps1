@@ -15,7 +15,8 @@ param(
   [switch]$SkipValidate,
   [switch]$NoShortcut,
   [switch]$NoDownload,
-  [switch]$Force
+  [switch]$Force,
+  [switch]$FixPagefile
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -69,6 +70,23 @@ try {
   else { Write-TuneLog 'CPU-only mode.' }
   if ($modelMB -gt $ramMB) { Write-TuneLog 'NOTE: model larger than RAM -> NVMe page cache tiering; close big apps while running for best speed.' }
 
+  # 3b. commit budget (WDDM charges CUDA allocations to RAM+pagefile; unmounted pagefile -> false OOM)
+  $mem = Get-TuneMemoryBudget
+  Write-TuneLog ("Commit budget: {0} GB limit / {1} GB free  mounted=[{2}]" -f `
+      [Math]::Round($mem.CommitLimitMB / 1024, 1), [Math]::Round($mem.CommitFreeMB / 1024, 1), ($mem.Mounted -join '; '))
+  foreach ($w in @(Find-TuneMemoryWarning $modelMB $mem)) { Write-TuneLog ("WARNING: " + $w) }
+  if ($FixPagefile) {
+    if (@($mem.Missing).Count -eq 0) {
+      Write-TuneLog 'No unmounted pagefile settings to fix.'
+    } else {
+      Write-TuneLog 'Re-registering unmounted pagefiles (explicit -FixPagefile opt-in)...'
+      foreach ($l in @(Repair-TunePagefile $mem.Missing)) { Write-TuneLog ('  ' + $l) }
+      Write-TuneLog 'REBOOT now, then re-run tune.cmd to revalidate under the restored commit budget.'
+      Save-TuneLog $reportPath
+      exit 0
+    }
+  }
+
   # 4. llama.cpp location (+ optional auto-install)
   $llamaDir = Find-TuneLlama $LlamaDir $cfgPath $root
   if (-not $llamaDir) {
@@ -83,7 +101,7 @@ try {
   $cfgData = Read-TuneConfig $cfgPath
   $gpuSig = $(if ($gpu) { $gpu.Sig } else { 'cpu' })
   if (-not $SkipValidate -and $p.Kmax -gt 0 -and $gpu) {
-    $cachedK = Get-TuneCachedK $cfgData $gpuSig $model
+    $cachedK = Get-TuneCachedK $cfgData $gpuSig $model $plan.NCtx
     if ((-not $Force) -and $cachedK -ge 0) {
       $Kbest = [Math]::Min($cachedK, $p.Kmax)
       Write-TuneLog ("Reusing validated K=$Kbest (hardware and model unchanged; use -Force to revalidate)")

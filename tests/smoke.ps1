@@ -185,6 +185,27 @@ $rc3 = Find-BestTuneCtx $planC 8 'fake.exe' 'rt' $kb
 Assert-Ok ($rc3.NCtx -eq 8192 -and $rc3.K -eq 0) ('nothing boots anywhere -> 8192 ctx K=0 fallback (got ctx=' + $rc3.NCtx + ' K=' + $rc3.K + ')')
 $script:ctxMaxBootable = 999999
 
+# ---------- 8. commit-budget warnings (field incident 2026-11-22: D: pagefile configured but not
+#              mounted -> commit limit 17 GB for a 21 GB model -> WDDM false-OOM) ----------------
+$b1 = @{ CommitLimitMB = 17800; CommitFreeMB = 4600; Mounted = @('C:\pagefile.sys'); Missing = @('D:\pagefile.sys') }
+$w1 = @(Find-TuneMemoryWarning 21790 $b1)
+Assert-Ok ($w1.Count -eq 2) ('incident repro: low commit + unmounted pagefile -> 2 warnings (got ' + $w1.Count + ')')
+Assert-Ok (($w1 -join ' ') -match 'D:') ('warning names the unmounted pagefile (got: ' + ($w1 -join ' | ') + ')')
+$b2 = @{ CommitLimitMB = 49400; CommitFreeMB = 40000; Mounted = @('C:\pagefile.sys'; 'D:\pagefile.sys'); Missing = @() }
+Assert-Ok (@(Find-TuneMemoryWarning 21790 $b2).Count -eq 0) 'healthy commit budget -> no warnings'
+$b3 = @{ CommitLimitMB = 23000; CommitFreeMB = 20000; Mounted = @('D:\pagefile.sys'); Missing = @() }
+Assert-Ok (@(Find-TuneMemoryWarning 21790 $b3).Count -eq 1) ('mounted but still too small for the model -> exactly the LOW warning (got ' + @(Find-TuneMemoryWarning 21790 $b3).Count + ')')
+$w1b = @(Find-TuneMemoryWarning 21790 (@{ CommitLimitMB = 49400; CommitFreeMB = 40000; Mounted = @('C:\pagefile.sys'); Missing = @([pscustomobject]@{ Name = 'D:\pagefile.sys'; InitialSize = 32768 }) }))
+Assert-Ok ($w1b.Count -eq 1 -and ($w1b -join '') -match 'D:\\pagefile\.sys') ('pagefile warning accepts CIM objects and names the drive (got: ' + ($w1b -join '') + ')')
+
+# ---------- 9. cached-K validity: hardware, model AND context must all match (a ctx-policy
+#              upgrade must invalidate a K that was only validated at the old ctx) --------------
+$cfgK = @{ K = 5; GpuSig = 'RTX/8151'; ModelPath = 'D:\m\model.gguf'; NCtx = 16384 }
+Assert-Ok ((Get-TuneCachedK $cfgK 'RTX/8151' 'D:\m\model.gguf' 16384) -eq 5) 'cache hit when gpu+model+ctx all match'
+Assert-Ok ((Get-TuneCachedK $cfgK 'RTX/8151' 'D:\m\model.gguf' 32768) -eq -1) ('ctx upgrade invalidates cached K (got ' + (Get-TuneCachedK $cfgK 'RTX/8151' 'D:\m\model.gguf' 32768) + ')')
+Assert-Ok ((Get-TuneCachedK $cfgK 'RTX4090/24564' 'D:\m\model.gguf' 16384) -eq -1) 'gpu change invalidates cached K'
+Assert-Ok ((Get-TuneCachedK $cfgK 'RTX/8151' 'D:\m\other.gguf' 16384) -eq -1) 'model change invalidates cached K'
+
 # ---------- summary ----------
 Write-Host ''
 Write-Host ('=== smoke: ' + $script:pass + ' passed, ' + $script:failList.Count + ' failed ===')

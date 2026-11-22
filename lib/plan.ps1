@@ -86,3 +86,20 @@ function New-TunePlan($model, [int]$modelMB, [int]$ramMB, $layout, $gpu, [int]$p
   }
   return @{ Plan = $plan; Kmax = [int]$Kmax; KVMB = $kvMB; ReserveMB = $reserveMB }
 }
+
+# Pure commit-budget check (unit-testable). Input: modelMB + budget from Get-TuneMemoryBudget.
+# Output: array of warning strings (empty = healthy). The model must fit in the commit budget with
+# headroom because WDDM charges GPU allocations to it; a pagefile that is configured but was not
+# mounted this boot is a known failure mode that silently shrinks the budget.
+function Find-TuneMemoryWarning([int]$modelMB, $budget) {
+  $warn = @()
+  if ([int]$budget.CommitLimitMB -lt ($modelMB + 2048)) {
+    $warn += ('COMMIT BUDGET LOW: limit {0} GB < model {1} GB + 2 GB headroom -> WDDM cudaMalloc will false-OOM (VRAM may look free). Fix virtual memory (System > Advanced > Performance Settings > Advanced > Virtual memory), then reboot.' -f `
+      [Math]::Round($budget.CommitLimitMB / 1024, 1), [Math]::Round($modelMB / 1024, 1))
+  }
+  foreach ($m in @($budget.Missing)) {
+    $name = $(if ($m -is [string]) { $m } else { $m.Name })
+    $warn += ('PAGEFILE NOT MOUNTED: ' + $name + ' is configured but absent this boot -> re-run as: tune.cmd -FixPagefile (as Administrator), then reboot.')
+  }
+  return $warn
+}

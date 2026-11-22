@@ -71,6 +71,6 @@ function Find-BestTuneCtx($plan, [int]$Kmax, [string]$llamaExe, [string]$runtime
     }
     if ($ctx -ne $ladder[-1]) { Write-TuneLog "  no K booted at ctx=$ctx -> halving context" }
   }
-  Write-TuneLog '  WARNING: nothing booted even at 8192 ctx (K=0 fallback; check nvidia-smi / other GPU users)'
+  Write-TuneLog '  WARNING: nothing booted even at 8192 ctx (K=0 fallback; check nvidia-smi / other GPU users / the COMMIT BUDGET warning above - an unmounted pagefile false-OOMs WDDM with free VRAM)'
   return @{ K = 0; NCtx = $ladder[-1] }
 }
