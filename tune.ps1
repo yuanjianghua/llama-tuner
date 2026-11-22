@@ -271,7 +271,7 @@ if %errorlevel%==10 goto open
 echo Starting llama-server (auto-tuned for this machine). Loading model, please wait...
 start "llama-server" /min "$($script:llamaExe)" $argLine
 :waitloop
-timeout /t 3 /nobreak >nul
+ping -n 4 127.0.0.1 >nul
 powershell -NoProfile -Command "$waith"
 if errorlevel 1 goto waitloop
 :open
@@ -282,7 +282,7 @@ start http://localhost:$($plan.Port)/
 title Stop LLM
 taskkill /im llama-server.exe /f >nul 2>&1
 echo llama-server stopped.
-timeout /t 2
+ping -n 3 127.0.0.1 >nul
 "@
   Set-Content -Path $startCmd -Value $startBody -Encoding ASCII
   Set-Content -Path $stopCmd  -Value $stopBody  -Encoding ASCII
