@@ -41,7 +41,7 @@ function Get-NvidiaGpus {
   foreach ($line in $out) {
     if ($line -match '^\s*\d+') {
       $p = $line -split ','
-      $gpus += @{ Id = [int]$p[0].Trim(); Name = $p[1].Trim(); TotalMB = [int]$p[2].Trim(); UsedMB = [int]$p[3].Trim() }
+      $gpus += [pscustomobject]@{ Id = [int]$p[0].Trim(); Name = $p[1].Trim(); TotalMB = [int]$p[2].Trim(); UsedMB = [int]$p[3].Trim() }
     }
   }
   return $gpus
