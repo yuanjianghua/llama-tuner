@@ -261,8 +261,8 @@ function Test-Plan([string]$argline, [int]$loadTimeoutSec) {
 }
 function Write-Launchers($plan, [int]$K) {
   $argLine = Build-Args $plan $K
-  $health = "try{$$h=Invoke-RestMethod http://127.0.0.1:{0}/health -TimeoutSec 2; if($$h.status -eq 'ok'){exit 10}}catch{}; exit 0" -f $plan.Port
-  $waith  = "try{$$h=Invoke-RestMethod http://127.0.0.1:{0}/health -TimeoutSec 3; if($$h.status -eq 'ok'){exit 0}}catch{}; exit 1" -f $plan.Port
+  $health = "try{$$h=Invoke-RestMethod http://127.0.0.1:" + $plan.Port + "/health -TimeoutSec 2; if($$h.status -eq 'ok'){exit 10}}catch{}; exit 0"
+  $waith  = "try{$$h=Invoke-RestMethod http://127.0.0.1:" + $plan.Port + "/health -TimeoutSec 3; if($$h.status -eq 'ok'){exit 0}}catch{}; exit 1"
   $startBody = @"
 @echo off
 title Start LLM
@@ -419,7 +419,14 @@ try {
   $script:plan = $plan
 
   $Kbest = $Kmax; $meas = $null
+  $gpuSig = (($gpus | ForEach-Object { "$($_.Name)/$($_.TotalMB)" }) -join '+')
+  $cfgData = $null
+  if (Test-Path $cfgPath) { try { $cfgData = Get-Content $cfgPath -Raw | ConvertFrom-Json } catch {} }
   if (-not $SkipValidate -and $Kmax -gt 0 -and $gpu) {
+    if ($cfgData -and (-not $Force) -and $null -ne $cfgData.K -and $cfgData.GpuSig -eq $gpuSig -and $cfgData.ModelPath -eq $model) {
+      $Kbest = [Math]::Min([int]$cfgData.K, $Kmax)
+      Say ("Reusing validated K=$Kbest (hardware and model unchanged; use -Force to revalidate)")
+    } else {
     Say 'Validating with real launches (binary search, failures cost ~30s, each success ~1-2 min)...'
     Stop-Server
     $lo = 0; $hi = $Kmax; $best = 0
@@ -431,11 +438,12 @@ try {
     }
     $Kbest = [Math]::Max(0, $best - 1)   # keep 1 layer headroom for KV growth / drivers
     if ($Kbest -ne $best) { Say "  -> keeping safety headroom: K=$Kbest" }
+    }
   }
 
   Write-Launchers $plan $Kbest
   $cfg = @{ ModelPath = $model; LlamaDir = $script:llamaExeDir; Port = $Port; K = $Kbest;
-            Kind = $plan.Kind; NCtx = $nctx; KvQ8 = $kvq8; TunedAt = (Get-Date).ToString('o') }
+            Kind = $plan.Kind; NCtx = $nctx; KvQ8 = $kvq8; GpuSig = $gpuSig; TunedAt = (Get-Date).ToString('o') }
   Set-Content -Path $cfgPath -Value ($cfg | ConvertTo-Json) -Encoding ASCII
   Say "Saved $cfgPath"
   Say '=== DONE. Use the desktop shortcuts (or start_llm.cmd). First requests are slower until page cache warms up. ==='
