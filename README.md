@@ -169,7 +169,7 @@ Reference machine (the only machine field-verified so far) · 参考实机（目
 | 硬盘 · Disk | UMIS 1 TB NVMe SSD |
 | 系统 · OS | Windows 11 Home 中文 · build 26200 |
 | 模型 · Model | Qwen3.6-35B-A3B · Unsloth Dynamic **Q4_K_XL** · 21.3 GB · MoE, 41 layers, hybrid-SSM (11 attention layers) |
-| 调优结果 · Tuned | ctx 16K + KV q8_0 + 专家驻留 K=5（提交预算受限时实测值；预算充足时实测 K=6） |
+| 调优结果 · Tuned | ctx **32768** + KV q8_0 + 专家驻留 K=5（2026-11-22 全新克隆实测：K=6 可启动，留 1 层余量取 K=5；32K→16K→8K 自动降档兜底） |
 
 速度 · Speed（本机实测 · measured on this machine）:
 
@@ -182,7 +182,7 @@ Reference machine (the only machine field-verified so far) · 参考实机（目
 
 速度口径 · Measurement conditions（真实使用累计，非跑分脚本 · real usage counters from `/metrics`, not a benchmark script）:
 
-- 服务端配置 · Server: `-c 16384` · KV `q8_0` · `-b 8192 -ub 1024` · `--cache-reuse 512` · `-np 1`（单对话槽 · one slot）
+- 服务端配置 · Server: `-c 16384`（速度数字采集时的配置；现已升为 `-c 32768`，该架构 KV 极小，速度基本不变） · KV `q8_0` · `-b 8192 -ub 1024` · `--cache-reuse 512` · `-np 1`（单对话槽 · one slot）
 - **tg ≈ 25 t/s**：全天真实长对话累计 **28,269 解码 token / 1,074 s = 26.3 t/s**；回答含思维链，单次输出常见数百~一两千 token，上下文用到过上限 16,383。Cumulative decode over a full day of real long chats.
 - **pp 热 ≈ 70–80 t/s**：单条长 prompt 热缓存值；全天平均 **63 t/s**（25,239 个未命中缓存的 prompt token，包含刚开机的慢启动段）。Full-day uncached average incl. cold-start phase.
 - **pp 冷 ≈ 10–12 t/s**：刚重启、模型未进页缓存时，调优验证环用 ~320-token prompt 实测。Measured by the tuner's validation loop right after reboot.
