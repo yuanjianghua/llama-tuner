@@ -132,6 +132,15 @@ Reference machine (the only machine field-verified so far) · 参考实机（目
 | 预填充 pp · cold | **≈ 10–12 tok/s** | NVMe 读盘 · NVMe page-in（前几分钟 · first minutes） |
 | KV 32K 上下文 | 仅 373 MB · tiny | 混合 SSM 架构，KV 不构成瓶颈 · hybrid-SSM, KV is not the limit |
 
+速度口径 · Measurement conditions（真实使用累计，非跑分脚本 · real usage counters from `/metrics`, not a benchmark script）:
+
+- 服务端配置 · Server: `-c 16384` · KV `q8_0` · `-b 8192 -ub 1024` · `--cache-reuse 512` · `-np 1`（单对话槽 · one slot）
+- **tg ≈ 25 t/s**：全天真实长对话累计 **28,269 解码 token / 1,074 s = 26.3 t/s**；回答含思维链，单次输出常见数百~一两千 token，上下文用到过上限 16,383。Cumulative decode over a full day of real long chats.
+- **pp 热 ≈ 70–80 t/s**：单条长 prompt 热缓存值；全天平均 **63 t/s**（25,239 个未命中缓存的 prompt token，包含刚开机的慢启动段）。Full-day uncached average incl. cold-start phase.
+- **pp 冷 ≈ 10–12 t/s**：刚重启、模型未进页缓存时，调优验证环用 ~320-token prompt 实测。Measured by the tuner's validation loop right after reboot.
+- 前缀缓存另计 · Prefix cache: 累计 **45,261** 个 prompt token 直接复用、几乎免费（长对话越多越省）。Not counted in pp.
+- 该架构 KV 极小，以上数字在 ctx 32K 下基本不变 · Numbers hold at 32K ctx too (KV is tiny on this arch).
+
 如实说明 · Honest notes：
 
 - **这台机器的瓶颈是 16 GB 内存 < 21.3 GB 模型**：专家权重靠 NVMe→内存页缓存分层，冷缓存时预填充在等读盘（10 t/s 级），热了以后受内存带宽与 CPU 算专家层限制；解码 25 t/s 同理。KV 反而是最不成问题的。 The 16 GB RAM < 21.3 GB model mismatch is the bottleneck; KV is not.
