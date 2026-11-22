@@ -9,6 +9,8 @@ copy the folder to any Windows machine, double-click `tune.cmd`, get a launch sc
 零依赖 PowerShell 工具（Windows）。不用 Python、不用管理员权限、不用手改配置：
 拷到任意 Windows 电脑，双击 `tune.cmd`，用**真实启动 + 实测 t/s** 验证出的启动脚本就生成好了——不靠论坛默认值抄表。
 
+![chat UI after one double-click · 双击桌面快捷方式后就得到这个聊天页](docs/screenshot-chat-ui.jpg)
+
 ---
 
 ## English
@@ -335,3 +337,9 @@ tests\all.cmd
 - **显存空余却报 OOM**？十有八九是提交预算：跑一次 `tune.cmd` 看有没有 `COMMIT BUDGET LOW` / `PAGEFILE NOT MOUNTED` 警告（2026-11-22 实机事故：D 盘 32GB 页面文件重启后未挂载，限额 47→17GB，加载模型假 OOM）。
 - **关于固态硬盘寿命（如实说）**：模型大于内存时（参考机 21.3GB 模型 vs 16GB 内存），专家权重要经系统页缓存从 NVMe 反复调入——缓存每变冷一次（重启、或被大内存应用挤掉），最多重读约 21GB，**这是读不是写**。SSD 寿命指标 TBW 按写入量计，读对颗粒的损耗几乎可忽略；写侧也有限（主要是内存超配带来的页面文件换出，通常一次会话几个 GB 量级），与主流 NVMe 数百 TBW 的质保相差几个数量级，正常使用不必焦虑。想再省：加内存（同时也是最大的提速项）、跑模型时关闭其它大内存应用。
 - 刚启动后的前几次请求偏慢是正常的：专家权重要从 NVMe 读进页缓存，越用越快。
+
+---
+
+## License · 许可
+
+[MIT](LICENSE) — 随便用、随便改，保留署名即可。 Free to use and modify, attribution appreciated.
