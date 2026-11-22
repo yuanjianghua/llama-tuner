@@ -63,8 +63,9 @@ $layout = [pscustomobject]@{ NLayers = 41; KvLayers = 11; KvHeads = 2; HeadDim =
 $gpu1 = [pscustomobject]@{ Count = 1; TotalMB = 8151; UsedMB = 980
   List = @([pscustomobject]@{ TotalMB = 8151 }) }
 $p1 = New-TunePlan 'D:\m\model.gguf' 21790 15760 $layout $gpu1 8080
-Assert-Ok ($p1.KVMB -eq 187) ('KV budget = 187 MB (got ' + $p1.KVMB + ', hybrid-SSM 11 kv layers)')
-Assert-Ok ($p1.Kmax -eq 7) ('single 8GB card Kmax = 7 (got ' + $p1.Kmax + ')')
+Assert-Ok ($p1.KVMB -eq 373) ('KV budget = 373 MB at 32k ctx (got ' + $p1.KVMB + ', hybrid-SSM 11 kv layers, KV-aware ctx pick)')
+Assert-Ok ($p1.Plan.NCtx -eq 32768) ('tiny-KV model upgrades to ctx 32768 (got ' + $p1.Plan.NCtx + ')')
+Assert-Ok ($p1.Kmax -eq 7) ('single 8GB card Kmax = 7 even at 32k ctx (got ' + $p1.Kmax + ')')
 $gpu2 = [pscustomobject]@{ Count = 2; TotalMB = 16302; UsedMB = 1960
   List = @([pscustomobject]@{ TotalMB = 8151 }, [pscustomobject]@{ TotalMB = 8151 }) }
 $p2 = New-TunePlan 'D:\m\model.gguf' 21790 15760 $layout $gpu2 8080
@@ -73,7 +74,7 @@ Assert-Ok ($p2.Plan.TensorSplit -eq '8151,8151') 'tensor-split from card sizes'
 $layoutD = [pscustomobject]@{ NLayers = 32; KvLayers = 32; KvHeads = 8; HeadDim = 128; IsMoE = $false
   ExpertBytes = [double]0; NonExpertBytes = [double](8 * 1GB); PerLayerExpertMB = [double]250 }
 $p3 = New-TunePlan 'D:\m\d.gguf' 8000 15760 $layoutD $gpu1 8080
-Assert-Ok ($p3.Plan.Kind -eq 'dense' -and $p3.Kmax -eq 9) ('dense partial offload Kmax = 9 (got ' + $p3.Kmax + ')')
+Assert-Ok ($p3.Plan.Kind -eq 'dense' -and $p3.Plan.NCtx -eq 16384 -and $p3.Kmax -eq 17) ('dense big-KV model falls to 16k ctx, Kmax = 17 (got ctx=' + $p3.Plan.NCtx + ' Kmax=' + $p3.Kmax + ')')
 $p4 = New-TunePlan 'D:\m\c.gguf' 21790 15760 $layout $null 8080
 Assert-Ok ($p4.Plan.Kind -eq 'cpu' -and $p4.Kmax -eq 0) 'no gpu -> cpu plan K=0'
 

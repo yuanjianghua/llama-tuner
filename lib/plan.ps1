@@ -46,9 +46,19 @@ function Build-TuneArgs($plan, [int]$K) {
 # Inputs: modelMB, ramMB, layout (from Get-GgufLayout), gpu summary or $null, port, model path.
 # Output: @{ Plan = hashtable; Kmax = int }
 function New-TunePlan($model, [int]$modelMB, [int]$ramMB, $layout, $gpu, [int]$port) {
-  $nctx = if ($modelMB -gt $ramMB * 0.8) { 16384 } else { 32768 }
   $kvq8 = $modelMB -gt ($ramMB * 0.7)
-  $kvMB = [int]((2 * $layout.KvLayers * $nctx * $layout.KvHeads * $layout.HeadDim * $(if ($kvq8) { 1.06 } else { 2 })) / 1MB)
+  # context choice: KV bytes scale linearly with ctx; hybrid-SSM models have tiny KV, so size
+  # ctx by the actual KV budget instead of a blanket 'big model -> 16k'. Largest of
+  # {32768,16384,8192} whose KV fits 35% of free VRAM budget (with no GPU: old RAM heuristic).
+  $perKMB = (2 * $layout.KvLayers * 1024 * $layout.KvHeads * $layout.HeadDim * $(if ($kvq8) { 1.06 } else { 2 })) / 1MB
+  $nctx = if ($modelMB -gt $ramMB * 0.8) { 16384 } else { 32768 }
+  if ($gpu) {
+    $kvCapMB = ($gpu.TotalMB - $gpu.UsedMB - 650 * $gpu.Count) * 0.35
+    foreach ($cand in @(32768, 16384, 8192)) {
+      if (($perKMB * $cand / 1024) -le $kvCapMB) { $nctx = $cand; break }
+    }
+  }
+  $kvMB = [int]($perKMB * $nctx / 1024)
   $nGpu = $(if ($gpu) { $gpu.Count } else { 1 })
   $reserveMB = 650 * $nGpu   # compute buffers + CUDA graphs + slack, per GPU
 
