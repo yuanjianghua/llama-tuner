@@ -108,6 +108,38 @@ Run `tests\all.cmd` before and after touching `lib/`.
 
 ---
 
+## Measured on this machine · 实测机型与速度
+
+Reference machine (the only machine field-verified so far) · 参考实机（目前唯一完整验证过的机器）:
+
+| 项 · Item | 值 · Value |
+|---|---|
+| 机型 · Machine | Lenovo Legion·拯救者 (83F3) |
+| CPU | Intel Core Ultra 7 255HX · 20 核/20 线程 · cores/threads |
+| 内存 · RAM | 16 GB (15.4 GiB usable) |
+| 显卡 · GPU | NVIDIA GeForce RTX 5060 Laptop · 8 GB (driver 616.56) |
+| 硬盘 · Disk | UMIS 1 TB NVMe SSD |
+| 系统 · OS | Windows 11 Home 中文 · build 26200 |
+| 模型 · Model | Qwen3.6-35B-A3B · Unsloth Dynamic **Q4_K_XL** · 21.3 GB · MoE, 41 layers, hybrid-SSM (11 attention layers) |
+| 调优结果 · Tuned | ctx 16K + KV q8_0 + 专家驻留 K=5（提交预算受限时实测值；预算充足时实测 K=6） |
+
+速度 · Speed（本机实测 · measured on this machine）:
+
+| 指标 · Metric | 数值 · Value | 主要限制 · Main limit |
+|---|---|---|
+| 解码 tg | **≈ 25 tok/s** | 内存带宽 + CPU 侧专家层 · RAM bandwidth + CPU-side experts |
+| 预填充 pp · warm | **≈ 70–80 tok/s** | NVMe 页缓存热后转内存带宽 · RAM bandwidth once page cache is warm |
+| 预填充 pp · cold | **≈ 10–12 tok/s** | NVMe 读盘 · NVMe page-in（前几分钟 · first minutes） |
+| KV 32K 上下文 | 仅 373 MB · tiny | 混合 SSM 架构，KV 不构成瓶颈 · hybrid-SSM, KV is not the limit |
+
+如实说明 · Honest notes：
+
+- **这台机器的瓶颈是 16 GB 内存 < 21.3 GB 模型**：专家权重靠 NVMe→内存页缓存分层，冷缓存时预填充在等读盘（10 t/s 级），热了以后受内存带宽与 CPU 算专家层限制；解码 25 t/s 同理。KV 反而是最不成问题的。 The 16 GB RAM < 21.3 GB model mismatch is the bottleneck; KV is not.
+- **目前只在这一台机器上完整实测过**（single-machine field test only）。多显卡等方案由同一套预算推导 + 实启动验证兜底，尚未在别的机型上跑过。
+- **SSD 寿命**：该配置对 NVMe 以**读**为主（缓存变冷时整模型最多重读 ~21 GB）。TBW 按写入计，读损耗可忽略；写侧（页面文件换出）每会话几 GB 量级，距主流 NVMe 数百 TBW 质保差几个数量级。正解是加内存——同时还是最大的提速项。 Read-dominated streaming; TBW is write-based, NAND wear from reads is negligible; more RAM fixes both speed and worry.
+
+---
+
 ## 中文说明
 
 把 llama.cpp 的"专家驻留划分"调优思路做成全自动流程：**检测硬件 → 解析模型结构 → 计算最优显存划分 → 真实启动验证（失败自动降档）→ 生成启动脚本 + 桌面快捷方式**。
