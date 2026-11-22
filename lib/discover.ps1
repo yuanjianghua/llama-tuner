@@ -34,6 +34,8 @@ function Find-TuneLlama([string]$hint, [string]$cfgPath, [string]$root) {
 
 function Install-TuneLlama([int]$gpuMB, [string]$root) {
   Write-TuneLog 'llama.cpp not found - downloading official Windows release from GitHub...'
+  # PS5.1 on old .NET may negotiate TLS1.0 and fail GitHub's API; force modern TLS.
+  try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}
   $dest = Join-Path $root 'runtime\llama'
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
   $rel = Invoke-RestMethod 'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest' -TimeoutSec 30
@@ -58,5 +60,8 @@ function Install-TuneLlama([int]$gpuMB, [string]$root) {
     Copy-Item (Join-Path $ex '*') $dest -Recurse -Force
   }
   if (-not (Test-Path (Join-Path $dest 'llama-server.exe'))) { throw 'extract failed, no llama-server.exe' }
+  Write-TuneLog 'NOTE for clean machines: CUDA/Vulkan builds need the VC++ 2015-2022 x64 runtime.'
+  Write-TuneLog '  If llama-server fails with "VCRUNTIME140.dll not found", install it: https://aka.ms/vs/17/release/vc_redist.x64.exe'
+  Write-TuneLog '  If GitHub downloads are slow/blocked: grab the zips from llama.cpp releases manually, unpack to one folder, re-run with -LlamaDir <folder>.'
   return $dest
 }

@@ -59,7 +59,20 @@ writes measured pp/tg into the report.
 
 Multi-GPU: budgets aggregate and `--tensor-split` is proportional, but remember non-NVLink
 card sync runs over PCIe — gains are sub-linear. The safety net is the real-launch loop: any
-over-aggressive estimate demotes itself automatically.
+over-aggressive estimate demotes itself automatically. **Status: the multi-GPU path has unit tests
+but has never been run on a physical dual-GPU machine** (the reference machine below has one card).
+
+### Troubleshooting on a clean machine
+
+- *No GGUF model found* — the auto-search only covers `D:\Models`, `D:\Dev`, `C:\Users`; put your
+  model there or pass `-ModelPath C:\path\model.gguf`.
+- *GitHub download slow/blocked* — manually download `llama-*-bin-win-cuda-cu12.*-x64.zip` **and**
+  `cudart-llama-bin-win-cuda-12.*-x64.zip` from the
+  [llama.cpp releases page](https://github.com/ggml-org/llama.cpp/releases), unpack both into one
+  folder, then `tune.cmd -LlamaDir <that folder>`.
+- *Popup: `VCRUNTIME140.dll` / `MSVCP140.dll` missing* — install the VC++ 2015-2022 x64 runtime:
+  <https://aka.ms/vs/17/release/vc_redist.x64.exe>.
+- *Port 8080 busy* — `tune.cmd -Port 8081`.
 
 ### Flags
 
@@ -89,6 +102,9 @@ Run `tests\all.cmd` before and after touching `lib/`.
 - **Field-verified on one reference machine only** (16 GB RAM + RTX 5060 Laptop 8 GB — specs in the
   measured section above). Multi-GPU and other hardware plans come from the same budget math and are
   always backed by the real-launch validation loop, but have not been field-run elsewhere yet.
+  **Explicitly: the multi-GPU code path (aggregated budget + `--tensor-split`) is only covered by
+  unit tests and has NEVER been run on a physical dual-GPU machine — every speed number in this
+  README comes from the single 8 GB card above.**
   If you try it on another machine, sharing your `tuning_report.txt` would be very welcome.
 - Validation stops a running llama-server (changing parameters needs a restart anyway).
 - GGUF knowledge comes from parsing the file header; expert splitting relies on standard
@@ -117,7 +133,7 @@ Reference machine (the only machine field-verified so far) · 参考实机（目
 | 机型 · Machine | Lenovo Legion·拯救者 (83F3) |
 | CPU | Intel Core Ultra 7 255HX · 20 核/20 线程 · cores/threads |
 | 内存 · RAM | 16 GB (15.4 GiB usable) |
-| 显卡 · GPU | NVIDIA GeForce RTX 5060 Laptop · 8 GB (driver 616.56) |
+| 显卡 · GPU | NVIDIA GeForce RTX 5060 Laptop · 8 GB (driver 616.56) · **x1 单卡 · single GPU** |
 | 硬盘 · Disk | UMIS 1 TB NVMe SSD |
 | 系统 · OS | Windows 11 Home 中文 · build 26200 |
 | 模型 · Model | Qwen3.6-35B-A3B · Unsloth Dynamic **Q4_K_XL** · 21.3 GB · MoE, 41 layers, hybrid-SSM (11 attention layers) |
@@ -192,6 +208,14 @@ Reference machine (the only machine field-verified so far) · 参考实机（目
 - 期望管理：非 NVLink 的卡间同步走 PCIe，多卡收益是**次线性**的（两张 8GB ≈ 1.5 张的收益，不是 2 张）；K 值划分的思路不变，只是"能常驻显存的专家层数"变多。
 - 真正的兜底是**实测验证环**：任何激进的显存预算估算，只要真实启动失败就自动降档，所以多卡下的激进估算也是安全的。
 - 已知边界：暂不使用 `-ot` 把指定层的专家钉到指定卡（`CUDA0/CUDA1`），如异构悬殊（如 8+24GB）建议手动微调。
+- 实测状态：**多卡路径只有单元测试，从未在真实双卡机器上验证过**（上文参考机为单卡）。
+
+### 故障排查（全新电脑常见问题）
+
+- *提示找不到 GGUF 模型*——自动搜索只覆盖 `D:\Models`、`D:\Dev`、`C:\Users`；把模型放这些位置，或用 `-ModelPath C:\路径\model.gguf`。
+- *GitHub 下载慢/连不上*——去 [llama.cpp releases](https://github.com/ggml-org/llama.cpp/releases) 手动下载 `llama-*-bin-win-cuda-cu12.*-x64.zip` **和** `cudart-llama-bin-win-cuda-12.*-x64.zip`，解压到同一个文件夹，再跑 `tune.cmd -LlamaDir <该文件夹>`。
+- *弹窗缺 `VCRUNTIME140.dll` / `MSVCP140.dll`*——安装 VC++ 2015-2022 运行库(x64)：<https://aka.ms/vs/17/release/vc_redist.x64.exe>。
+- *8080 端口被占*——`tune.cmd -Port 8081`。
 
 ### 常用参数
 
@@ -250,7 +274,7 @@ tests\all.cmd
 
 ### 已知边界
 
-- **目前只在一台参考实机上完整验证过**（16GB 内存 + RTX 5060 Laptop 8GB，配置见上文实测机型）。多显卡及其它硬件方案由同一套预算逻辑推导，并有“真实启动实测”兜底，但尚未在别的机器上实跑过——欢迎你在自己机器上跑完后把 `tuning_report.txt` 反馈给我。
+- **目前只在一台参考实机上完整验证过**（16GB 内存 + RTX 5060 Laptop 8GB，配置见上文实测机型）。多显卡及其它硬件方案由同一套预算逻辑推导，并有“真实启动实测”兜底，但尚未在别的机器上实跑过——欢迎你在自己机器上跑完后把 `tuning_report.txt` 反馈给我。**明确说明：多显卡代码路径（合并预算 + `--tensor-split`）目前只有单元测试覆盖，从未在真实双卡机器上跑过；本页所有速度数字都来自上面那张单张 8GB 卡。**
 - 验证过程会结束本机正在运行的 llama-server（换参数本来也要重启）。
 - GGUF 结构通过解析文件头获得（不加载权重），对标准 llama.cpp 量化命名（`_exps.`）的 MoE 有效；极特殊架构会退回整层 `-ngl` 方案。
 - 换了显卡/内存后重跑一次 `tune.cmd` 即可重新调优；换**上下文大小**（含规则升级）同样会让缓存的 K 失效并重新实测。
