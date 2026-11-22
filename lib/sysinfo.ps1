@@ -70,6 +70,14 @@ function Get-NvidiaGpus {
   return $gpus
 }
 
+# Clean-machine trap: an NVIDIA GPU whose driver is NOT installed does not appear in nvidia-smi,
+# and the tuner would silently plan a CPU-only run 10x slower than the hardware allows.
+# Detect the silicon at the PnP layer (VEN_10DE = NVIDIA) so we can tell the user to install the driver.
+function Test-TuneNvidiaDevicePresent {
+  @(Get-CimInstance Win32_PnPEntity -Filter "PNPClass='Display'" -ErrorAction SilentlyContinue |
+      Where-Object { $_.DeviceID -match 'VEN_10DE' -or $_.Name -match 'NVIDIA|GeForce|RTX|GTX' }).Count -gt 0
+}
+
 # caller MUST wrap in @() : a 0/1 element return gets unrolled by PS and scalar has no .Count on PS5.1
 function Get-TuneGpuSummary {
   $gpus = @(Get-NvidiaGpus)

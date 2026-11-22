@@ -13,6 +13,10 @@ function Find-TuneModel([string]$hint, [string]$cfgPath) {
          Sort-Object Length -Descending | Select-Object -First 1
     if ($f) { return $f.FullName }
   }
+  Write-TuneLog 'No GGUF model found (auto-search covers D:\Models, D:\Dev, C:\Users).'
+  Write-TuneLog '  Beginner? Download a GGUF model first, e.g. https://huggingface.co/models?library=gguf'
+  Write-TuneLog '  Mainland China mirror: https://modelscope.cn - pick a GGUF quantized file (Q4_K_M / Q4_K_XL are good starts),'
+  Write-TuneLog '  then re-run:  tune.cmd -ModelPath X:\path\to\model.gguf'
   throw "No GGUF model found. Re-run with -ModelPath C:\path\to\model.gguf"
 }
 

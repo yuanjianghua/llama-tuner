@@ -1,0 +1,8 @@
+# Normalize line endings so a GitHub "Download ZIP" (which skips git's autocrlf) still works:
+# batch files MUST be CRLF (cmd label/goto edge cases); ps1/json/md are fine either way.
+* text=auto
+*.cmd text eol=crlf
+*.ps1 text
+*.psm1 text
+*.json text
+*.md text

@@ -16,7 +16,8 @@ param(
   [switch]$NoShortcut,
   [switch]$NoDownload,
   [switch]$Force,
-  [switch]$FixPagefile
+  [switch]$FixPagefile,
+  [switch]$CpuOnly
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -44,6 +45,13 @@ try {
     Write-TuneLog ("GPU x{0}: {1}" -f $gpu.Count, (($gpu.List | ForEach-Object { "$($_.Name) $($_.TotalMB)MB (used $($_.UsedMB)MB)" }) -join '; '))
     if ($gpu.Count -gt 1) { Write-TuneLog 'Multi-GPU: VRAM budgets aggregated; per-GPU overhead reserved; tensor-split proportional to card size. Cross-card sync runs over PCIe, gains are sub-linear.' }
   } else {
+    if (-not $CpuOnly -and (Test-TuneNvidiaDevicePresent)) {
+      Write-TuneLog 'ERROR: NVIDIA GPU detected at device level, but nvidia-smi does not work - the driver is missing or broken.'
+      Write-TuneLog '       A CPU-only run would be ~10x slower than this machine can do. Install the driver first:'
+      Write-TuneLog '       Windows Update > Advanced options > Optional updates, OR https://www.nvidia.com/en-us/drivers/'
+      Write-TuneLog '       Then re-run tune.cmd.  (Want CPU-only on purpose? re-run with -CpuOnly.)'
+      throw 'NVIDIA driver missing (GPU present, nvidia-smi unusable)'
+    }
     Write-TuneLog 'GPU: no NVIDIA GPU detected -> CPU-only plan (AMD/Vulkan users: tune manually)'
   }
 
@@ -52,6 +60,10 @@ try {
   $modelBytes = (Get-Item $model).Length
   $modelMB = [Math]::Round($modelBytes / 1MB)
   Write-TuneLog "Model: $model  ($([Math]::Round($modelMB/1024,2)) GiB)"
+  $drvFree = (Get-PSDrive -Name $model.Substring(0, 1) -ErrorAction SilentlyContinue).Free
+  if ($drvFree -and $drvFree -lt ($modelBytes + 4GB)) {
+    Write-TuneLog ("WARNING: drive " + $model.Substring(0,1) + ": has only " + [Math]::Round($drvFree/1GB) + " GB free - expect model size + several GB headroom (pagefile/scratch); free up space for reliable runs.")
+  }
   Write-TuneLog "Parsing GGUF header: $model"
   $hdr = Parse-GgufHeader $model
   $layout = Get-GgufLayout $hdr $modelBytes
