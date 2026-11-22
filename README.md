@@ -43,7 +43,35 @@ tune.cmd -ModelPath E:\m.gguf        # 指定模型
 tune.cmd -LlamaDir D:\Apps\llama     # 指定 llama.cpp 目录
 tune.cmd -Port 8081                   # 换端口
 tune.cmd -NoShortcut -NoDownload      # 不建快捷方式、不联网下载
+tune.cmd -Force                       # 忽略缓存，重新实测验证
 ```
+
+## 项目结构（改代码先看这里）
+
+```
+tune.ps1 / tune.cmd     入口，只做编排（按顺序调用 lib/）
+lib/common.ps1          日志、停服务
+lib/sysinfo.ps1         硬件检测（内存 / NVIDIA 显卡列表）
+lib/gguf.ps1            GGUF 文件头解析 + 模型布局分析（纯读取）
+lib/discover.ps1        找模型、找 llama.cpp、必要时自动下载
+lib/plan.ps1            预算与参数计算（纯函数，无 I/O，最易测试）
+lib/validate.ps1        真实启动二分验证（唯一会起进程的模块）
+lib/launcher.ps1        生成 start/stop .cmd 与桌面快捷方式
+tests/smoke.ps1         离线回归测试（不起服务、不联网，秒级跑完）
+```
+
+改 `lib/` 下任何文件前后都要跑：
+
+```
+powershell -ExecutionPolicy Bypass -File tests\smoke.ps1
+```
+
+它固化了本项目踩过的所有坑：GGUF 新旧两种 dims 宽度、层号正则的跨十位区间与选择组括号、
+启动脚本的 `$$`/花括号/`timeout` 三个 cmd 生成 bug、CPU 方案不得出现 `-ngl 99`、
+多卡预算与 tensor-split 数值、以及"函数名不得被内置别名遮蔽"的命名规约。
+
+约定：所有函数带 `Tune/Gguf/Nvidia/Layer` 前缀（防别名遮蔽）；源码保持 ASCII；
+中文文本走 `[regex]::Unescape`；纯计算逻辑放 `lib/plan.ps1`（便于离线测试）。
 
 ## 已知边界
 
