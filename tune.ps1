@@ -261,8 +261,8 @@ function Test-Plan([string]$argline, [int]$loadTimeoutSec) {
 }
 function Write-Launchers($plan, [int]$K) {
   $argLine = Build-Args $plan $K
-  $health = "try{$$h=Invoke-RestMethod http://127.0.0.1:" + $plan.Port + "/health -TimeoutSec 2; if($$h.status -eq 'ok'){exit 10}}catch{}; exit 0"
-  $waith  = "try{$$h=Invoke-RestMethod http://127.0.0.1:" + $plan.Port + "/health -TimeoutSec 3; if($$h.status -eq 'ok'){exit 0}}catch{}; exit 1"
+  $health = 'try{$h=Invoke-RestMethod http://127.0.0.1:' + $plan.Port + '/health -TimeoutSec 2; if($h.status -eq ''ok''){exit 10}}catch{}; exit 0'
+  $waith  = 'try{$h=Invoke-RestMethod http://127.0.0.1:' + $plan.Port + '/health -TimeoutSec 3; if($h.status -eq ''ok''){exit 0}}catch{}; exit 1'
   $startBody = @"
 @echo off
 title Start LLM
